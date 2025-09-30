@@ -16,6 +16,8 @@ extern ConVar tf_bot_path_debug_duration;
 BTNavigationNode::BTNavigationNode()
 	: BTDecisionNode( "Navigation" )
 	, m_pPathSelector( NULL )
+	, m_iCurrentWaypoint( 0 )
+	, m_goalPosition( vec3_origin )
 {
 }
 
@@ -46,6 +48,7 @@ float BTNavigationNode::CalculateWeight( CTFBot *pBot )
 
 //----------------------------------------------------------------------------
 // Execute - Perform navigation with dynamic path selection
+// Now with actual bot movement along calculated paths!
 //----------------------------------------------------------------------------
 bool BTNavigationNode::Execute( CTFBot *pBot )
 {
@@ -61,165 +64,136 @@ bool BTNavigationNode::Execute( CTFBot *pBot )
 	// Update path selector
 	m_pPathSelector->Update( gpGlobals->frametime );
 
-	// For Story 1.2, we're just setting up the infrastructure
-	// Actual path application to bot navigation will happen in existing behaviors
-	// For now, just select a path to demonstrate the system works
-
-	// Get bot's current goal (if any)
-	// In a real implementation, this would come from the bot's tactical decision
-	// For demonstration, use a nearby nav area as goal
+	// Get bot's current nav area
 	CTFNavArea *pCurrentArea = pBot->GetLastKnownArea();
 	if ( !pCurrentArea )
 		return true; // No nav area, skip
 
-	// Find a random nearby area as demonstration goal
-	CUtlVector< CNavArea * > nearbyAreas;
-	pCurrentArea->CollectAdjacentAreas( &nearbyAreas );
-
-	if ( nearbyAreas.Count() > 0 )
+	// Pick a new goal every 10 seconds (or if we don't have one)
+	if ( !m_goalTimer.HasStarted() || m_goalTimer.IsElapsed() )
 	{
-		int randomIdx = RandomInt( 0, nearbyAreas.Count() - 1 );
-		CTFNavArea *pGoalArea = (CTFNavArea *)nearbyAreas[randomIdx];
+		// Find a random nearby area as demonstration goal
+		CUtlVector< CNavArea * > nearbyAreas;
+		pCurrentArea->CollectAdjacentAreas( &nearbyAreas );
 
-		// Select path using path selector
-		PathInfo_t selectedPath;
-		if ( m_pPathSelector->SelectPath( pBot->GetAbsOrigin(), pGoalArea->GetCenter(), &selectedPath ) )
+		if ( nearbyAreas.Count() > 0 )
 		{
-			if ( tf_bot_path_debug.GetBool() )
+			int randomIdx = RandomInt( 0, nearbyAreas.Count() - 1 );
+			CTFNavArea *pGoalArea = (CTFNavArea *)nearbyAreas[randomIdx];
+			m_goalPosition = pGoalArea->GetCenter();
+
+			// Calculate path to new goal
+			if ( m_pPathSelector->SelectPath( pBot->GetAbsOrigin(), m_goalPosition, &m_currentPath ) )
 			{
-				float flDuration = tf_bot_path_debug_duration.GetFloat();
-
-				// Color code based on path type
-				int r = 0, g = 255, b = 0; // Default: Green for Primary
-				const char *pathTypeName = "PRIMARY";
-
-				switch ( selectedPath.type )
-				{
-					case PATH_FLANK:
-						r = 0; g = 128; b = 255; // Blue
-						pathTypeName = "FLANK";
-						break;
-					case PATH_ALTERNATIVE:
-						r = 255; g = 255; b = 0; // Yellow
-						pathTypeName = "ALTERNATIVE";
-						break;
-					case PATH_SAFE:
-						r = 0; g = 255; b = 128; // Cyan
-						pathTypeName = "SAFE";
-						break;
-					case PATH_FAST:
-						r = 255; g = 128; b = 0; // Orange
-						pathTypeName = "FAST";
-						break;
-					default:
-						r = 0; g = 255; b = 0; // Green for Primary
-						pathTypeName = "PRIMARY";
-						break;
-				}
-
-				// Draw bot's current position marker (large yellow sphere)
-				Vector botPos = pBot->GetAbsOrigin();
-				NDebugOverlay::Sphere( botPos, 16.0f, 255, 255, 0, true, flDuration );
-
-				// Draw pulsing circle around bot for visibility
-				NDebugOverlay::Circle( botPos, 24.0f, 255, 255, 0, 100, true, flDuration );
-
-				// Draw bot's facing direction as an axis
-				QAngle botAngles = pBot->EyeAngles();
-				NDebugOverlay::Axis( botPos, botAngles, 40.0f, true, flDuration );
-
-				// Draw bot's velocity/movement direction
-				Vector velocity = pBot->GetAbsVelocity();
-				if ( velocity.Length() > 1.0f )
-				{
-					Vector endVel = botPos + velocity.Normalized() * 50.0f;
-					NDebugOverlay::VertArrow( botPos, endVel, 8.0f, 255, 128, 0, 200, true, flDuration );
-				}
-
-				// Draw start marker (green sphere with circle)
-				if ( selectedPath.waypoints.Count() > 0 )
-				{
-					Vector startPos = selectedPath.waypoints[0];
-					NDebugOverlay::Sphere( startPos, 12.0f, 0, 255, 0, true, flDuration );
-					NDebugOverlay::Circle( startPos, 20.0f, 0, 255, 0, 200, true, flDuration );
-
-					// Draw end marker (red sphere with circle)
-					Vector endPos = selectedPath.waypoints[selectedPath.waypoints.Count() - 1];
-					NDebugOverlay::Sphere( endPos, 12.0f, 255, 0, 0, true, flDuration );
-					NDebugOverlay::Circle( endPos, 20.0f, 255, 0, 0, 200, true, flDuration );
-
-					// Draw text label at end showing path info
-					char szLabel[256];
-					Q_snprintf( szLabel, sizeof(szLabel), "=== %s ===\nPath Type: %s\nDistance: %.1f units\nWaypoints: %d\n(Demo: random goal)",
-							   pBot->GetPlayerName(), pathTypeName, selectedPath.length, selectedPath.waypoints.Count() );
-					NDebugOverlay::Text( endPos + Vector(0, 0, 20), szLabel, true, flDuration );
-				}
-
-				// Draw path waypoints with color-coded lines
-				for ( int i = 1; i < selectedPath.waypoints.Count(); ++i )
-				{
-					// Main path line
-					NDebugOverlay::Line( selectedPath.waypoints[i-1], selectedPath.waypoints[i],
-										 r, g, b, true, flDuration );
-
-					// Draw waypoint markers as crosses instead of spheres (more visible)
-					NDebugOverlay::Cross3D( selectedPath.waypoints[i], 6.0f, 255, 255, 255, true, flDuration );
-				}
-
-				// Draw direction indicator from bot to first waypoint
-				if ( selectedPath.waypoints.Count() > 0 )
-				{
-					Vector firstWaypoint = selectedPath.waypoints[0];
-
-					// Use HorzArrow for better visibility (now that we know it exists)
-					NDebugOverlay::HorzArrow( botPos, firstWaypoint, 10.0f, 255, 255, 0, 255, true, flDuration );
-
-					// Also draw a filled triangle at the destination for extra clarity
-					Vector toWaypoint = firstWaypoint - botPos;
-					toWaypoint.NormalizeInPlace();
-					Vector perpendicular( -toWaypoint.y, toWaypoint.x, 0 );
-					perpendicular.NormalizeInPlace();
-
-					// Create filled arrow triangle
-					Vector arrowTip = firstWaypoint;
-					Vector arrowLeft = firstWaypoint - (toWaypoint * 12.0f) + (perpendicular * 8.0f);
-					Vector arrowRight = firstWaypoint - (toWaypoint * 12.0f) - (perpendicular * 8.0f);
-
-					NDebugOverlay::Triangle( arrowTip, arrowLeft, arrowRight, 255, 255, 0, 200, true, flDuration );
-
-					// Add info text near bot showing what's happening
-					char szBotInfo[256];
-					Q_snprintf( szBotInfo, sizeof(szBotInfo),
-						"=== Path Info ===\n"
-						"To Next: %.1f units\n"
-						"Total: %.1f units\n"
-						"Waypoints: %d\n"
-						"Yellow Circle = Bot\n"
-						"RGB Axis = Bot Facing\n"
-						"Orange Arrow = Movement",
-						(firstWaypoint - botPos).Length(),
-						selectedPath.length,
-						selectedPath.waypoints.Count() );
-					NDebugOverlay::Text( botPos + Vector(0, 0, 55), szBotInfo, true, flDuration );
-				}
-
-				// Draw comprehensive legend
-				char szLegend[512];
-				Q_snprintf( szLegend, sizeof(szLegend),
-					"=== PATH TYPE COLORS ===\n"
-					"Green = Primary (shortest)\n"
-					"Blue = Flanking (side approach)\n"
-					"Yellow = Alternative\n"
-					"Cyan = Safe (Heavy prefers)\n"
-					"Orange = Fast (Scout prefers)\n"
-					"\n"
-					"=== MARKERS ===\n"
-					"Green Circle = Path Start\n"
-					"Red Circle = Path Goal\n"
-					"White Cross = Waypoints\n"
-					"Yellow Triangle = Direction" );
-				NDebugOverlay::Text( botPos + Vector(60, 60, 20), szLegend, true, flDuration );
+				m_iCurrentWaypoint = 0; // Start at first waypoint
+				m_goalTimer.Start( 10.0f ); // Pick new goal in 10 seconds
 			}
+		}
+	}
+
+	// Follow the current path if we have one
+	if ( m_currentPath.waypoints.Count() > 0 && m_iCurrentWaypoint < m_currentPath.waypoints.Count() )
+	{
+		Vector currentWaypoint = m_currentPath.waypoints[m_iCurrentWaypoint];
+		Vector botPos = pBot->GetAbsOrigin();
+
+		// Move toward current waypoint
+		pBot->GetLocomotionInterface()->Approach( currentWaypoint );
+
+		// Check if we're close enough to advance to next waypoint
+		float distToWaypoint = (currentWaypoint - botPos).Length();
+		if ( distToWaypoint < 50.0f ) // Within 50 units
+		{
+			m_iCurrentWaypoint++;
+
+			// If we reached the end, the goal timer will pick a new goal
+		}
+
+		// Draw debug visualization
+		if ( tf_bot_path_debug.GetBool() )
+		{
+			float flDuration = tf_bot_path_debug_duration.GetFloat();
+
+			// Color code based on path type
+			int r = 0, g = 255, b = 0; // Default: Green for Primary
+			const char *pathTypeName = "PRIMARY";
+
+			switch ( m_currentPath.type )
+			{
+				case PATH_FLANK:
+					r = 0; g = 128; b = 255; // Blue
+					pathTypeName = "FLANK";
+					break;
+				case PATH_ALTERNATIVE:
+					r = 255; g = 255; b = 0; // Yellow
+					pathTypeName = "ALTERNATIVE";
+					break;
+				case PATH_SAFE:
+					r = 0; g = 255; b = 128; // Cyan
+					pathTypeName = "SAFE";
+					break;
+				case PATH_FAST:
+					r = 255; g = 128; b = 0; // Orange
+					pathTypeName = "FAST";
+					break;
+				default:
+					r = 0; g = 255; b = 0; // Green for Primary
+					pathTypeName = "PRIMARY";
+					break;
+			}
+
+			// Draw bot's current position marker
+			NDebugOverlay::Sphere( botPos, 16.0f, 255, 255, 0, true, flDuration );
+			NDebugOverlay::Circle( botPos, 24.0f, 255, 255, 0, 100, true, flDuration );
+
+			// Draw bot's facing direction
+			QAngle botAngles = pBot->EyeAngles();
+			NDebugOverlay::Axis( botPos, botAngles, 40.0f, true, flDuration );
+
+			// Draw velocity
+			Vector velocity = pBot->GetAbsVelocity();
+			if ( velocity.Length() > 1.0f )
+			{
+				Vector endVel = botPos + velocity.Normalized() * 50.0f;
+				NDebugOverlay::VertArrow( botPos, endVel, 8.0f, 255, 128, 0, 200, true, flDuration );
+			}
+
+			// Draw goal marker
+			NDebugOverlay::Sphere( m_goalPosition, 12.0f, 255, 0, 0, true, flDuration );
+			NDebugOverlay::Circle( m_goalPosition, 20.0f, 255, 0, 0, 200, true, flDuration );
+
+			// Draw path waypoints with color-coded lines
+			for ( int i = 1; i < m_currentPath.waypoints.Count(); ++i )
+			{
+				NDebugOverlay::Line( m_currentPath.waypoints[i-1], m_currentPath.waypoints[i],
+									 r, g, b, true, flDuration );
+				NDebugOverlay::Cross3D( m_currentPath.waypoints[i], 6.0f, 255, 255, 255, true, flDuration );
+			}
+
+			// Highlight current target waypoint with larger cross
+			if ( m_iCurrentWaypoint < m_currentPath.waypoints.Count() )
+			{
+				NDebugOverlay::Cross3D( currentWaypoint, 12.0f, 255, 255, 0, true, flDuration );
+				NDebugOverlay::HorzArrow( botPos, currentWaypoint, 10.0f, 255, 255, 0, 255, true, flDuration );
+			}
+
+			// Info text
+			char szInfo[512];
+			Q_snprintf( szInfo, sizeof(szInfo),
+				"=== %s [%s] ===\n"
+				"Waypoint %d/%d\n"
+				"Distance: %.1f units\n"
+				"Path: %s (%.1f units)\n"
+				"\n"
+				"Yellow Sphere = Bot\n"
+				"Orange Arrow = Moving\n"
+				"Yellow Cross = Next Waypoint\n"
+				"Red Sphere = Final Goal",
+				pBot->GetPlayerName(), pBot->GetPlayerClass()->GetName(),
+				m_iCurrentWaypoint + 1, m_currentPath.waypoints.Count(),
+				distToWaypoint,
+				pathTypeName, m_currentPath.length );
+			NDebugOverlay::Text( botPos + Vector(0, 0, 55), szInfo, true, flDuration );
 		}
 	}
 

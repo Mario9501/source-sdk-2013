@@ -28,6 +28,12 @@ public:
 private:
 	// Path selector instance (one per node for now, could be shared)
 	CTFBotPathSelector *m_pPathSelector;
+
+	// Current path state for waypoint following
+	PathInfo_t m_currentPath;
+	int m_iCurrentWaypoint;
+	CountdownTimer m_goalTimer;			// Timer to pick new random goal
+	Vector m_goalPosition;				// Current goal position
 };
 
 #endif // TF_BOT_BT_NAVIGATION_H
