@@ -8,6 +8,7 @@
 #include "tf_bot_bt_navigation.h"
 
 extern ConVar tf_bot_path_debug;
+extern ConVar tf_bot_path_debug_duration;
 
 //----------------------------------------------------------------------------
 // BTNavigationNode - Constructor
@@ -86,11 +87,71 @@ bool BTNavigationNode::Execute( CTFBot *pBot )
 		{
 			if ( tf_bot_path_debug.GetBool() )
 			{
-				// Draw path waypoints for debugging
+				float flDuration = tf_bot_path_debug_duration.GetFloat();
+
+				// Color code based on path type
+				int r = 0, g = 255, b = 0; // Default: Green for Primary
+				const char *pathTypeName = "PRIMARY";
+
+				switch ( selectedPath.type )
+				{
+					case PATH_FLANK:
+						r = 0; g = 128; b = 255; // Blue
+						pathTypeName = "FLANK";
+						break;
+					case PATH_ALTERNATIVE:
+						r = 255; g = 255; b = 0; // Yellow
+						pathTypeName = "ALTERNATIVE";
+						break;
+					case PATH_SAFE:
+						r = 0; g = 255; b = 128; // Cyan
+						pathTypeName = "SAFE";
+						break;
+					case PATH_FAST:
+						r = 255; g = 128; b = 0; // Orange
+						pathTypeName = "FAST";
+						break;
+					default:
+						r = 0; g = 255; b = 0; // Green for Primary
+						pathTypeName = "PRIMARY";
+						break;
+				}
+
+				// Draw bot's current position marker (large yellow sphere)
+				NDebugOverlay::Sphere( pBot->GetAbsOrigin(), 16.0f, 255, 255, 0, true, flDuration );
+
+				// Draw start marker (green sphere)
+				if ( selectedPath.waypoints.Count() > 0 )
+				{
+					NDebugOverlay::Sphere( selectedPath.waypoints[0], 12.0f, 0, 255, 0, true, flDuration );
+
+					// Draw end marker (red sphere)
+					Vector endPos = selectedPath.waypoints[selectedPath.waypoints.Count() - 1];
+					NDebugOverlay::Sphere( endPos, 12.0f, 255, 0, 0, true, flDuration );
+
+					// Draw text label at end showing path info
+					char szLabel[128];
+					Q_snprintf( szLabel, sizeof(szLabel), "%s\n%.1f units\n%s",
+							   pathTypeName, selectedPath.length, pBot->GetPlayerName() );
+					NDebugOverlay::Text( endPos + Vector(0, 0, 20), szLabel, true, flDuration );
+				}
+
+				// Draw path waypoints with color-coded lines
 				for ( int i = 1; i < selectedPath.waypoints.Count(); ++i )
 				{
+					// Main path line (thicker)
 					NDebugOverlay::Line( selectedPath.waypoints[i-1], selectedPath.waypoints[i],
-										 0, 255, 0, true, 1.0f );
+										 r, g, b, true, flDuration );
+
+					// Draw small waypoint markers (white dots)
+					NDebugOverlay::Sphere( selectedPath.waypoints[i], 4.0f, 255, 255, 255, true, flDuration );
+				}
+
+				// Draw arrow from bot to first waypoint
+				if ( selectedPath.waypoints.Count() > 0 )
+				{
+					NDebugOverlay::HorzArrow( pBot->GetAbsOrigin(), selectedPath.waypoints[0],
+											  8.0f, 255, 255, 0, 200, true, flDuration );
 				}
 			}
 		}

@@ -22,6 +22,10 @@ ConVar tf_bot_path_recalc_interval( "tf_bot_path_recalc_interval", "5.0", FCVAR_
 ConVar tf_bot_path_debug( "tf_bot_path_debug", "0", FCVAR_GAMEDLL,
 						  "Debug path selection (draws paths, prints selection info)" );
 
+ConVar tf_bot_path_debug_duration( "tf_bot_path_debug_duration", "2.0", FCVAR_GAMEDLL,
+								   "How long debug path visualizations stay on screen (seconds)",
+								   true, 0.1f, true, 10.0f );
+
 //----------------------------------------------------------------------------
 // CTFBotPathSelector - Constructor
 //----------------------------------------------------------------------------
