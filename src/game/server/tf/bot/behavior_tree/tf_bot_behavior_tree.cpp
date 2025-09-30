@@ -6,6 +6,7 @@
 #include "cbase.h"
 #include "../tf_bot.h"
 #include "tf_bot_behavior_tree.h"
+#include "tf_bot_bt_navigation.h"
 
 // ConVars for behavior tree control
 ConVar tf_bot_behavior_tree_enabled( "tf_bot_behavior_tree_enabled", "0", FCVAR_NOTIFY | FCVAR_GAMEDLL,
@@ -105,7 +106,7 @@ void CTFBotBehaviorTree::Update( float deltaTime )
 
 //----------------------------------------------------------------------------
 // BuildTree - Construct the behavior tree structure
-// For Story 1.1, this creates a single pass-through node
+// For Story 1.1-1.2, this creates navigation node for testing
 //----------------------------------------------------------------------------
 void CTFBotBehaviorTree::BuildTree()
 {
@@ -116,13 +117,13 @@ void CTFBotBehaviorTree::BuildTree()
 		m_pRootNode = NULL;
 	}
 
-	// Create a single pass-through action node
-	// This proves integration without changing bot behavior
-	m_pRootNode = new BTPassThroughActionNode();
+	// Create navigation node for path selection demonstration
+	// This allows visual debugging of Story 1.2 path selection
+	m_pRootNode = new BTNavigationNode();
 
 	if ( tf_bot_bt_debug_nodes.GetBool() )
 	{
-		DevMsg( "[TF Bot BT] Built tree with pass-through node\n" );
+		DevMsg( "[TF Bot BT] Built tree with navigation node\n" );
 	}
 }
 
