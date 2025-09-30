@@ -118,7 +118,17 @@ bool BTNavigationNode::Execute( CTFBot *pBot )
 				}
 
 				// Draw bot's current position marker (large yellow sphere)
-				NDebugOverlay::Sphere( pBot->GetAbsOrigin(), 16.0f, 255, 255, 0, true, flDuration );
+				Vector botPos = pBot->GetAbsOrigin();
+				NDebugOverlay::Sphere( botPos, 16.0f, 255, 255, 0, true, flDuration );
+
+				// Draw bot's velocity/facing direction as a line
+				Vector velocity = pBot->GetAbsVelocity();
+				if ( velocity.Length() > 1.0f )
+				{
+					Vector endVel = botPos + velocity.Normalized() * 50.0f;
+					NDebugOverlay::Line( botPos, endVel, 255, 128, 0, true, flDuration );
+					NDebugOverlay::Sphere( endVel, 6.0f, 255, 128, 0, true, flDuration );
+				}
 
 				// Draw start marker (green sphere)
 				if ( selectedPath.waypoints.Count() > 0 )
@@ -130,9 +140,9 @@ bool BTNavigationNode::Execute( CTFBot *pBot )
 					NDebugOverlay::Sphere( endPos, 12.0f, 255, 0, 0, true, flDuration );
 
 					// Draw text label at end showing path info
-					char szLabel[128];
-					Q_snprintf( szLabel, sizeof(szLabel), "%s\n%.1f units\n%s",
-							   pathTypeName, selectedPath.length, pBot->GetPlayerName() );
+					char szLabel[256];
+					Q_snprintf( szLabel, sizeof(szLabel), "=== %s ===\nPath Type: %s\nDistance: %.1f units\nWaypoints: %d\n(Demo: random goal)",
+							   pBot->GetPlayerName(), pathTypeName, selectedPath.length, selectedPath.waypoints.Count() );
 					NDebugOverlay::Text( endPos + Vector(0, 0, 20), szLabel, true, flDuration );
 				}
 
@@ -147,12 +157,53 @@ bool BTNavigationNode::Execute( CTFBot *pBot )
 					NDebugOverlay::Sphere( selectedPath.waypoints[i], 4.0f, 255, 255, 255, true, flDuration );
 				}
 
-				// Draw arrow from bot to first waypoint
+				// Draw direction indicator from bot to first waypoint
 				if ( selectedPath.waypoints.Count() > 0 )
 				{
-					NDebugOverlay::HorzArrow( pBot->GetAbsOrigin(), selectedPath.waypoints[0],
-											  8.0f, 255, 255, 0, 200, true, flDuration );
+					Vector botPos = pBot->GetAbsOrigin();
+					Vector firstWaypoint = selectedPath.waypoints[0];
+
+					// Draw thick yellow line from bot to first waypoint
+					NDebugOverlay::Line( botPos, firstWaypoint, 255, 255, 0, true, flDuration );
+
+					// Draw chevron/arrow head at the waypoint to show direction
+					Vector toWaypoint = firstWaypoint - botPos;
+					toWaypoint.NormalizeInPlace();
+					Vector perpendicular( -toWaypoint.y, toWaypoint.x, 0 );
+					perpendicular.NormalizeInPlace();
+
+					// Create arrow head pointing toward waypoint
+					Vector arrowBase = firstWaypoint - (toWaypoint * 10.0f);
+					Vector arrowLeft = arrowBase + (perpendicular * 8.0f);
+					Vector arrowRight = arrowBase - (perpendicular * 8.0f);
+
+					NDebugOverlay::Line( firstWaypoint, arrowLeft, 255, 255, 0, true, flDuration );
+					NDebugOverlay::Line( firstWaypoint, arrowRight, 255, 255, 0, true, flDuration );
+					NDebugOverlay::Line( arrowLeft, arrowRight, 255, 255, 0, true, flDuration );
+
+					// Add info text near bot showing what's happening
+					char szBotInfo[256];
+					Q_snprintf( szBotInfo, sizeof(szBotInfo),
+						"Next Waypoint: %.1f units\n"
+						"Total Path: %.1f units\n"
+						"Yellow Sphere = Bot Position\n"
+						"Orange Line = Movement Direction\n"
+						"Yellow Arrow = Path Direction",
+						(firstWaypoint - botPos).Length(),
+						selectedPath.length );
+					NDebugOverlay::Text( botPos + Vector(0, 0, 50), szBotInfo, true, flDuration );
 				}
+
+				// Draw color legend
+				char szLegend[256];
+				Q_snprintf( szLegend, sizeof(szLegend),
+					"PATH COLORS:\n"
+					"Green = Primary (shortest)\n"
+					"Blue = Flanking\n"
+					"Yellow = Alternative\n"
+					"Cyan = Safe (Heavy)\n"
+					"Orange = Fast (Scout)" );
+				NDebugOverlay::Text( botPos + Vector(50, 50, 30), szLegend, true, flDuration );
 			}
 		}
 	}
