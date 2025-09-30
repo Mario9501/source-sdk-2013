@@ -121,23 +121,32 @@ bool BTNavigationNode::Execute( CTFBot *pBot )
 				Vector botPos = pBot->GetAbsOrigin();
 				NDebugOverlay::Sphere( botPos, 16.0f, 255, 255, 0, true, flDuration );
 
-				// Draw bot's velocity/facing direction as a line
+				// Draw pulsing circle around bot for visibility
+				NDebugOverlay::Circle( botPos, 24.0f, 255, 255, 0, 100, true, flDuration );
+
+				// Draw bot's facing direction as an axis
+				QAngle botAngles = pBot->EyeAngles();
+				NDebugOverlay::Axis( botPos, botAngles, 40.0f, true, flDuration );
+
+				// Draw bot's velocity/movement direction
 				Vector velocity = pBot->GetAbsVelocity();
 				if ( velocity.Length() > 1.0f )
 				{
 					Vector endVel = botPos + velocity.Normalized() * 50.0f;
-					NDebugOverlay::Line( botPos, endVel, 255, 128, 0, true, flDuration );
-					NDebugOverlay::Sphere( endVel, 6.0f, 255, 128, 0, true, flDuration );
+					NDebugOverlay::VertArrow( botPos, endVel, 8.0f, 255, 128, 0, 200, true, flDuration );
 				}
 
-				// Draw start marker (green sphere)
+				// Draw start marker (green sphere with circle)
 				if ( selectedPath.waypoints.Count() > 0 )
 				{
-					NDebugOverlay::Sphere( selectedPath.waypoints[0], 12.0f, 0, 255, 0, true, flDuration );
+					Vector startPos = selectedPath.waypoints[0];
+					NDebugOverlay::Sphere( startPos, 12.0f, 0, 255, 0, true, flDuration );
+					NDebugOverlay::Circle( startPos, 20.0f, 0, 255, 0, 200, true, flDuration );
 
-					// Draw end marker (red sphere)
+					// Draw end marker (red sphere with circle)
 					Vector endPos = selectedPath.waypoints[selectedPath.waypoints.Count() - 1];
 					NDebugOverlay::Sphere( endPos, 12.0f, 255, 0, 0, true, flDuration );
+					NDebugOverlay::Circle( endPos, 20.0f, 255, 0, 0, 200, true, flDuration );
 
 					// Draw text label at end showing path info
 					char szLabel[256];
@@ -149,61 +158,67 @@ bool BTNavigationNode::Execute( CTFBot *pBot )
 				// Draw path waypoints with color-coded lines
 				for ( int i = 1; i < selectedPath.waypoints.Count(); ++i )
 				{
-					// Main path line (thicker)
+					// Main path line
 					NDebugOverlay::Line( selectedPath.waypoints[i-1], selectedPath.waypoints[i],
 										 r, g, b, true, flDuration );
 
-					// Draw small waypoint markers (white dots)
-					NDebugOverlay::Sphere( selectedPath.waypoints[i], 4.0f, 255, 255, 255, true, flDuration );
+					// Draw waypoint markers as crosses instead of spheres (more visible)
+					NDebugOverlay::Cross3D( selectedPath.waypoints[i], 6.0f, 255, 255, 255, true, flDuration );
 				}
 
 				// Draw direction indicator from bot to first waypoint
 				if ( selectedPath.waypoints.Count() > 0 )
 				{
-					Vector botPos = pBot->GetAbsOrigin();
 					Vector firstWaypoint = selectedPath.waypoints[0];
 
-					// Draw thick yellow line from bot to first waypoint
-					NDebugOverlay::Line( botPos, firstWaypoint, 255, 255, 0, true, flDuration );
+					// Use HorzArrow for better visibility (now that we know it exists)
+					NDebugOverlay::HorzArrow( botPos, firstWaypoint, 10.0f, 255, 255, 0, 255, true, flDuration );
 
-					// Draw chevron/arrow head at the waypoint to show direction
+					// Also draw a filled triangle at the destination for extra clarity
 					Vector toWaypoint = firstWaypoint - botPos;
 					toWaypoint.NormalizeInPlace();
 					Vector perpendicular( -toWaypoint.y, toWaypoint.x, 0 );
 					perpendicular.NormalizeInPlace();
 
-					// Create arrow head pointing toward waypoint
-					Vector arrowBase = firstWaypoint - (toWaypoint * 10.0f);
-					Vector arrowLeft = arrowBase + (perpendicular * 8.0f);
-					Vector arrowRight = arrowBase - (perpendicular * 8.0f);
+					// Create filled arrow triangle
+					Vector arrowTip = firstWaypoint;
+					Vector arrowLeft = firstWaypoint - (toWaypoint * 12.0f) + (perpendicular * 8.0f);
+					Vector arrowRight = firstWaypoint - (toWaypoint * 12.0f) - (perpendicular * 8.0f);
 
-					NDebugOverlay::Line( firstWaypoint, arrowLeft, 255, 255, 0, true, flDuration );
-					NDebugOverlay::Line( firstWaypoint, arrowRight, 255, 255, 0, true, flDuration );
-					NDebugOverlay::Line( arrowLeft, arrowRight, 255, 255, 0, true, flDuration );
+					NDebugOverlay::Triangle( arrowTip, arrowLeft, arrowRight, 255, 255, 0, 200, true, flDuration );
 
 					// Add info text near bot showing what's happening
 					char szBotInfo[256];
 					Q_snprintf( szBotInfo, sizeof(szBotInfo),
-						"Next Waypoint: %.1f units\n"
-						"Total Path: %.1f units\n"
-						"Yellow Sphere = Bot Position\n"
-						"Orange Line = Movement Direction\n"
-						"Yellow Arrow = Path Direction",
+						"=== Path Info ===\n"
+						"To Next: %.1f units\n"
+						"Total: %.1f units\n"
+						"Waypoints: %d\n"
+						"Yellow Circle = Bot\n"
+						"RGB Axis = Bot Facing\n"
+						"Orange Arrow = Movement",
 						(firstWaypoint - botPos).Length(),
-						selectedPath.length );
-					NDebugOverlay::Text( botPos + Vector(0, 0, 50), szBotInfo, true, flDuration );
+						selectedPath.length,
+						selectedPath.waypoints.Count() );
+					NDebugOverlay::Text( botPos + Vector(0, 0, 55), szBotInfo, true, flDuration );
 				}
 
-				// Draw color legend
-				char szLegend[256];
+				// Draw comprehensive legend
+				char szLegend[512];
 				Q_snprintf( szLegend, sizeof(szLegend),
-					"PATH COLORS:\n"
+					"=== PATH TYPE COLORS ===\n"
 					"Green = Primary (shortest)\n"
-					"Blue = Flanking\n"
+					"Blue = Flanking (side approach)\n"
 					"Yellow = Alternative\n"
-					"Cyan = Safe (Heavy)\n"
-					"Orange = Fast (Scout)" );
-				NDebugOverlay::Text( botPos + Vector(50, 50, 30), szLegend, true, flDuration );
+					"Cyan = Safe (Heavy prefers)\n"
+					"Orange = Fast (Scout prefers)\n"
+					"\n"
+					"=== MARKERS ===\n"
+					"Green Circle = Path Start\n"
+					"Red Circle = Path Goal\n"
+					"White Cross = Waypoints\n"
+					"Yellow Triangle = Direction" );
+				NDebugOverlay::Text( botPos + Vector(60, 60, 20), szLegend, true, flDuration );
 			}
 		}
 	}
