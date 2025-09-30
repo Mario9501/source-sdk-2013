@@ -743,6 +743,8 @@ $Project "Server (TF)"
 				$File	"tf\bot\tf_bot_squad.h"
 				$File	"tf\bot\tf_bot_locomotion.cpp"
 				$File	"tf\bot\tf_bot_locomotion.h"
+				$File	"tf\bot\tf_bot_path_selector.cpp"
+				$File	"tf\bot\tf_bot_path_selector.h"
 
 				$Folder	"BehaviorTree"
 				{
@@ -750,6 +752,8 @@ $Project "Server (TF)"
 					$File	"tf\bot\behavior_tree\tf_bot_behavior_tree.h"
 					$File	"tf\bot\behavior_tree\tf_bot_bt_node.cpp"
 					$File	"tf\bot\behavior_tree\tf_bot_bt_node.h"
+					$File	"tf\bot\behavior_tree\tf_bot_bt_navigation.cpp"
+					$File	"tf\bot\behavior_tree\tf_bot_bt_navigation.h"
 				}
 			}
 			
