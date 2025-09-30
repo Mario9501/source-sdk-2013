@@ -72,13 +72,13 @@ bool BTNavigationNode::Execute( CTFBot *pBot )
 		return true; // No nav area, skip
 
 	// Find a random nearby area as demonstration goal
-	CUtlVector< CTFNavArea * > nearbyAreas;
+	CUtlVector< CNavArea * > nearbyAreas;
 	pCurrentArea->CollectAdjacentAreas( &nearbyAreas );
 
 	if ( nearbyAreas.Count() > 0 )
 	{
 		int randomIdx = RandomInt( 0, nearbyAreas.Count() - 1 );
-		CTFNavArea *pGoalArea = nearbyAreas[randomIdx];
+		CTFNavArea *pGoalArea = (CTFNavArea *)nearbyAreas[randomIdx];
 
 		// Select path using path selector
 		PathInfo_t selectedPath;

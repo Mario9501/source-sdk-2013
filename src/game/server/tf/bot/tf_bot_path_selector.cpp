@@ -7,6 +7,8 @@
 #include "tf_bot.h"
 #include "tf_bot_path_selector.h"
 #include "../nav_mesh/tf_nav_mesh.h"
+#include "nav_pathfind.h"
+#include "tf_shareddefs.h"
 
 // ConVars for path selection
 ConVar tf_bot_path_variation_chance( "tf_bot_path_variation_chance", "0.15", FCVAR_NOTIFY | FCVAR_GAMEDLL,
@@ -73,7 +75,7 @@ bool CTFBotPathSelector::SelectPath( const Vector &start, const Vector &goal, Pa
 		PathInfo_t *pSelectedPath = SelectBestPath( start, goal );
 		if ( pSelectedPath )
 		{
-			*outPath = *pSelectedPath;
+			outPath->CopyFrom( *pSelectedPath );
 			m_currentPathType = pSelectedPath->type;
 
 			// Restart timer
@@ -109,9 +111,7 @@ PathInfo_t *CTFBotPathSelector::SelectBestPath( const Vector &start, const Vecto
 {
 	static PathInfo_t s_primaryPath;
 	static PathInfo_t s_selectedPath;
-	static CUtlVector< PathInfo_t > s_alternativePaths;
-
-	s_alternativePaths.RemoveAll();
+	static PathInfo_t s_flankPath;  // Single static flank path to avoid copy issues
 
 	// Always compute primary path as fallback
 	if ( !ComputePrimaryPath( start, goal, &s_primaryPath ) )
@@ -124,35 +124,27 @@ PathInfo_t *CTFBotPathSelector::SelectBestPath( const Vector &start, const Vecto
 	if ( flRandom > m_flPathVariationChance )
 	{
 		// Stick with primary path (80-90% of the time)
-		s_selectedPath = s_primaryPath;
+		s_selectedPath.CopyFrom( s_primaryPath );
 		return &s_selectedPath;
 	}
 
-	// Find alternative paths
-	FindAlternativePaths( start, goal, s_alternativePaths );
+	// Try to find a flanking path
+	bool bHasFlankPath = ComputeFlankingPath( start, goal, &s_flankPath );
 
-	if ( s_alternativePaths.Count() == 0 )
+	if ( !bHasFlankPath )
 	{
 		// No alternatives found, use primary
-		s_selectedPath = s_primaryPath;
+		s_selectedPath.CopyFrom( s_primaryPath );
 		return &s_selectedPath;
 	}
 
-	// Calculate costs for all paths including class preferences
-	float flBestCost = CalculatePathCost( s_primaryPath, m_pBot );
-	PathInfo_t *pBestPath = &s_primaryPath;
+	// Calculate costs for primary and flank paths including class preferences
+	float flPrimaryCost = CalculatePathCost( s_primaryPath, m_pBot );
+	float flFlankCost = CalculatePathCost( s_flankPath, m_pBot );
 
-	for ( int i = 0; i < s_alternativePaths.Count(); ++i )
-	{
-		float flCost = CalculatePathCost( s_alternativePaths[i], m_pBot );
-		if ( flCost < flBestCost )
-		{
-			flBestCost = flCost;
-			pBestPath = &s_alternativePaths[i];
-		}
-	}
+	PathInfo_t *pBestPath = ( flFlankCost < flPrimaryCost ) ? &s_flankPath : &s_primaryPath;
 
-	s_selectedPath = *pBestPath;
+	s_selectedPath.CopyFrom( *pBestPath );
 	return &s_selectedPath;
 }
 
@@ -171,9 +163,9 @@ bool CTFBotPathSelector::ComputePrimaryPath( const Vector &start, const Vector &
 	if ( !pStartArea || !pGoalArea )
 		return false;
 
-	// Build path using nav mesh
-	CUtlVector< CTFNavArea * > areaPath;
-	if ( !NavAreaBuildPath( pStartArea, pGoalArea, &goal, 0.0f, TEAM_ANY, false ) )
+	// Build path using nav mesh with ShortestPathCost functor
+	ShortestPathCost costFunc;
+	if ( !NavAreaBuildPath( pStartArea, pGoalArea, &goal, costFunc ) )
 		return false;
 
 	// Convert area path to waypoints
@@ -209,23 +201,6 @@ bool CTFBotPathSelector::ComputePrimaryPath( const Vector &start, const Vector &
 }
 
 //----------------------------------------------------------------------------
-// FindAlternativePaths - Identify flanking and alternative routes
-//----------------------------------------------------------------------------
-bool CTFBotPathSelector::FindAlternativePaths( const Vector &start, const Vector &goal, CUtlVector< PathInfo_t > &outPaths )
-{
-	// Try to find a flanking path
-	PathInfo_t flankPath;
-	if ( ComputeFlankingPath( start, goal, &flankPath ) )
-	{
-		outPaths.AddToTail( flankPath );
-	}
-
-	// Could add more alternative path types here in future stories
-
-	return outPaths.Count() > 0;
-}
-
-//----------------------------------------------------------------------------
 // ComputeFlankingPath - Calculate route that approaches from different angle
 //----------------------------------------------------------------------------
 bool CTFBotPathSelector::ComputeFlankingPath( const Vector &start, const Vector &goal, PathInfo_t *outPath )
@@ -238,7 +213,7 @@ bool CTFBotPathSelector::ComputeFlankingPath( const Vector &start, const Vector 
 		return false;
 
 	// Find areas near goal that approach from a different direction
-	CUtlVector< CTFNavArea * > nearbyAreas;
+	CUtlVector< CNavArea * > nearbyAreas;
 	pGoalArea->CollectAdjacentAreas( &nearbyAreas );
 
 	if ( nearbyAreas.Count() < 2 )
@@ -246,7 +221,7 @@ bool CTFBotPathSelector::ComputeFlankingPath( const Vector &start, const Vector 
 
 	// Pick a random adjacent area as intermediate waypoint for flanking
 	int randomIdx = RandomInt( 0, nearbyAreas.Count() - 1 );
-	CTFNavArea *pFlankArea = nearbyAreas[randomIdx];
+	CTFNavArea *pFlankArea = (CTFNavArea *)nearbyAreas[randomIdx];
 
 	// Build path: start -> flank area -> goal
 	PathInfo_t pathToFlank;
@@ -331,7 +306,7 @@ float CTFBotPathSelector::GetClassPathPreference( EPathType pathType, CTFBot *pB
 				return 0.8f;  // 20% cost reduction
 			return 1.0f;
 
-		case TF_CLASS_HEAVY:
+		case TF_CLASS_HEAVYWEAPONS:
 			// Heavy prefers safe/covered routes
 			if ( pathType == PATH_SAFE )
 				return 0.7f;  // 30% cost reduction
