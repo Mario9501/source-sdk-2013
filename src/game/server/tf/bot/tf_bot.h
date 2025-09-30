@@ -27,6 +27,7 @@ class CTriggerAreaCapture;
 class CTFBotActionPoint;
 class CObjectSentrygun;
 class CTFBotGenerator;
+class CTFBotBehaviorTree;
 
 extern void BotGenerateAndWearItem( CTFPlayer *pBot, const char *itemName );
 
@@ -496,6 +497,8 @@ private:
 	CTFBotLocomotion	*m_locomotor;
 	CTFBotBody			*m_body;
 	CTFBotVision		*m_vision;
+
+	class CTFBotBehaviorTree *m_pBehaviorTree;		// Dynamic behavior tree AI system
 
 	CountdownTimer m_lookAtEnemyInvasionAreasTimer;
 

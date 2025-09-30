@@ -36,6 +36,7 @@
 #include "bot/behavior/tf_bot_behavior.h"
 #include "bot/map_entities/tf_bot_generator.h"
 #include "bot/map_entities/tf_bot_hint_entity.h"
+#include "bot/behavior_tree/tf_bot_behavior_tree.h"
 
 ConVar tf_bot_force_class( "tf_bot_force_class", "", FCVAR_GAMEDLL, "If set to a class name, all TFBots will respawn as that class" );
 
@@ -1256,6 +1257,7 @@ CTFBot::CTFBot()
 	m_body = new CTFBotBody( this );
 	m_locomotor = new CTFBotLocomotion( this );
 	m_vision = new CTFBotVision( this );
+	m_pBehaviorTree = NULL;	// Initialized in Spawn()
 	ALLOCATE_INTENTION_INTERFACE( CTFBot );
 
 	m_spawnArea = NULL;
@@ -1323,6 +1325,9 @@ CTFBot::~CTFBot()
 	if ( m_vision )
 		delete m_vision;
 
+	if ( m_pBehaviorTree )
+		delete m_pBehaviorTree;
+
 	m_suspectedSpyVector.PurgeAndDeleteElements();
 }
 
@@ -1338,6 +1343,15 @@ void CTFBot::Spawn()
 	m_didReselectClass = false;
 	m_isLookingAroundForEnemies = true;
 	m_attentionFocusEntity = NULL;
+
+	// Initialize behavior tree (Story 1.1)
+	if ( !m_pBehaviorTree )
+	{
+		m_pBehaviorTree = new CTFBotBehaviorTree( this );
+	}
+
+	// Behavior tree starts disabled by default (ConVar controlled)
+	m_pBehaviorTree->SetEnabled( true );
 
 	m_suspectedSpyVector.PurgeAndDeleteElements();
 	m_knownSpyVector.RemoveAll();
@@ -1402,6 +1416,12 @@ void CTFBot::ReEvaluateCurrentClass( void )
 void CTFBot::PhysicsSimulate( void )
 {
 	BaseClass::PhysicsSimulate();
+
+	// Update behavior tree (Story 1.1) - called before existing behavior processing
+	if ( m_pBehaviorTree )
+	{
+		m_pBehaviorTree->Update( gpGlobals->frametime );
+	}
 
 	if ( m_spawnArea == NULL )
 	{

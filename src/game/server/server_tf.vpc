@@ -743,6 +743,14 @@ $Project "Server (TF)"
 				$File	"tf\bot\tf_bot_squad.h"
 				$File	"tf\bot\tf_bot_locomotion.cpp"
 				$File	"tf\bot\tf_bot_locomotion.h"
+
+				$Folder	"BehaviorTree"
+				{
+					$File	"tf\bot\behavior_tree\tf_bot_behavior_tree.cpp"
+					$File	"tf\bot\behavior_tree\tf_bot_behavior_tree.h"
+					$File	"tf\bot\behavior_tree\tf_bot_bt_node.cpp"
+					$File	"tf\bot\behavior_tree\tf_bot_bt_node.h"
+				}
 			}
 			
 			$Folder "NavMesh"
