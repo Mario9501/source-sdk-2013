@@ -65,6 +65,7 @@ public:
 	virtual void		FireGameEvent( IGameEvent *event );
 	virtual void		Event_Killed( const CTakeDamageInfo &info );
 	virtual void		PhysicsSimulate( void );
+	virtual void		Update( void );			// Override NextBot Update to control legacy behavior system
 	virtual void		Touch( CBaseEntity *pOther );
 	virtual void		AvoidPlayers( CUserCmd *pCmd );				// some game types allow players to pass through each other, this method pushes them apart
 	virtual void		UpdateOnRemove( void );

@@ -10,6 +10,9 @@
 extern ConVar tf_bot_path_debug;
 extern ConVar tf_bot_path_debug_duration;
 
+ConVar tf_bot_path_debug_text( "tf_bot_path_debug_text", "0", FCVAR_GAMEDLL,
+							   "Show text labels in path debug (0=visual only, 1=show text)" );
+
 //----------------------------------------------------------------------------
 // BTNavigationNode - Constructor
 //----------------------------------------------------------------------------
@@ -72,14 +75,35 @@ bool BTNavigationNode::Execute( CTFBot *pBot )
 	// Pick a new goal every 10 seconds (or if we don't have one)
 	if ( !m_goalTimer.HasStarted() || m_goalTimer.IsElapsed() )
 	{
-		// Find a random nearby area as demonstration goal
-		CUtlVector< CNavArea * > nearbyAreas;
-		pCurrentArea->CollectAdjacentAreas( &nearbyAreas );
+		// Find areas within a reasonable distance (500-2000 units)
+		const float minDist = 500.0f;
+		const float maxDist = 2000.0f;
 
-		if ( nearbyAreas.Count() > 0 )
+		CUtlVector< CNavArea * > nearbyAreas;
+		Vector botPos = pBot->GetAbsOrigin();
+
+		// Collect areas in a radius around the bot
+		Extent searchExtent;
+		searchExtent.lo = botPos - Vector( maxDist, maxDist, 500.0f );
+		searchExtent.hi = botPos + Vector( maxDist, maxDist, 500.0f );
+
+		TheNavMesh->CollectAreasOverlappingExtent( searchExtent, &nearbyAreas );
+
+		// Filter to areas within distance range
+		CUtlVector< CNavArea * > validAreas;
+		for ( int i = 0; i < nearbyAreas.Count(); ++i )
 		{
-			int randomIdx = RandomInt( 0, nearbyAreas.Count() - 1 );
-			CTFNavArea *pGoalArea = (CTFNavArea *)nearbyAreas[randomIdx];
+			float dist = (nearbyAreas[i]->GetCenter() - botPos).Length();
+			if ( dist >= minDist && dist <= maxDist )
+			{
+				validAreas.AddToTail( nearbyAreas[i] );
+			}
+		}
+
+		if ( validAreas.Count() > 0 )
+		{
+			int randomIdx = RandomInt( 0, validAreas.Count() - 1 );
+			CTFNavArea *pGoalArea = (CTFNavArea *)validAreas[randomIdx];
 			m_goalPosition = pGoalArea->GetCenter();
 
 			// Calculate path to new goal
@@ -109,9 +133,12 @@ bool BTNavigationNode::Execute( CTFBot *pBot )
 			// If we reached the end, the goal timer will pick a new goal
 		}
 
-		// Draw debug visualization
-		if ( tf_bot_path_debug.GetBool() )
+		// Draw debug visualization (throttled to avoid overwhelming renderer)
+		// Only draw every 0.5 seconds to match BT evaluation interval
+		static float flLastDebugDraw = 0.0f;
+		if ( tf_bot_path_debug.GetBool() && (gpGlobals->curtime - flLastDebugDraw) >= 0.5f )
 		{
+			flLastDebugDraw = gpGlobals->curtime;
 			float flDuration = tf_bot_path_debug_duration.GetFloat();
 
 			// Color code based on path type
@@ -177,23 +204,18 @@ bool BTNavigationNode::Execute( CTFBot *pBot )
 				NDebugOverlay::HorzArrow( botPos, currentWaypoint, 10.0f, 255, 255, 0, 255, true, flDuration );
 			}
 
-			// Info text
-			char szInfo[512];
-			Q_snprintf( szInfo, sizeof(szInfo),
-				"=== %s [%s] ===\n"
-				"Waypoint %d/%d\n"
-				"Distance: %.1f units\n"
-				"Path: %s (%.1f units)\n"
-				"\n"
-				"Yellow Sphere = Bot\n"
-				"Orange Arrow = Moving\n"
-				"Yellow Cross = Next Waypoint\n"
-				"Red Sphere = Final Goal",
-				pBot->GetPlayerName(), pBot->GetPlayerClass()->GetName(),
-				m_iCurrentWaypoint + 1, m_currentPath.waypoints.Count(),
-				distToWaypoint,
-				pathTypeName, m_currentPath.length );
-			NDebugOverlay::Text( botPos + Vector(0, 0, 55), szInfo, true, flDuration );
+			// Info text (only if enabled to prevent clutter)
+			if ( tf_bot_path_debug_text.GetBool() )
+			{
+				char szInfo[256];
+				Q_snprintf( szInfo, sizeof(szInfo),
+					"%s: %s Path\nWP %d/%d (%.0fu)",
+					pBot->GetPlayerName(),
+					pathTypeName,
+					m_iCurrentWaypoint + 1, m_currentPath.waypoints.Count(),
+					distToWaypoint );
+				NDebugOverlay::Text( botPos + Vector(0, 0, 55), szInfo, true, flDuration );
+			}
 		}
 	}
 

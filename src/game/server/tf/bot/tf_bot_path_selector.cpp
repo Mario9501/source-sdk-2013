@@ -11,8 +11,8 @@
 #include "tf_shareddefs.h"
 
 // ConVars for path selection
-ConVar tf_bot_path_variation_chance( "tf_bot_path_variation_chance", "0.15", FCVAR_NOTIFY | FCVAR_GAMEDLL,
-									 "Probability that bot will take alternative/flanking path (0.0-1.0, default: 0.15)",
+ConVar tf_bot_path_variation_chance( "tf_bot_path_variation_chance", "0.35", FCVAR_NOTIFY | FCVAR_GAMEDLL,
+									 "Probability that bot will take alternative/flanking path (0.0-1.0, default: 0.35)",
 									 true, 0.0f, true, 1.0f );
 
 ConVar tf_bot_path_recalc_interval( "tf_bot_path_recalc_interval", "5.0", FCVAR_GAMEDLL,
@@ -33,7 +33,7 @@ CTFBotPathSelector::CTFBotPathSelector( CTFBot *pBot )
 	: m_pBot( pBot )
 	, m_currentPathType( PATH_PRIMARY )
 	, m_lastGoal( vec3_origin )
-	, m_flPathVariationChance( 0.15f )
+	, m_flPathVariationChance( 0.35f )
 {
 	m_pathRecalcTimer.Invalidate();
 }
@@ -146,6 +146,14 @@ PathInfo_t *CTFBotPathSelector::SelectBestPath( const Vector &start, const Vecto
 	float flPrimaryCost = CalculatePathCost( s_primaryPath, m_pBot );
 	float flFlankCost = CalculatePathCost( s_flankPath, m_pBot );
 
+	if ( tf_bot_path_debug.GetBool() )
+	{
+		DevMsg( "[Path] %s: Primary=%.1f units (cost %.1f), Flank=%.1f units (cost %.1f)\n",
+				m_pBot->GetPlayerName(),
+				s_primaryPath.length, flPrimaryCost,
+				s_flankPath.length, flFlankCost );
+	}
+
 	PathInfo_t *pBestPath = ( flFlankCost < flPrimaryCost ) ? &s_flankPath : &s_primaryPath;
 
 	s_selectedPath.CopyFrom( *pBestPath );
@@ -169,7 +177,7 @@ bool CTFBotPathSelector::ComputePrimaryPath( const Vector &start, const Vector &
 
 	// Build path using nav mesh with ShortestPathCost functor
 	ShortestPathCost costFunc;
-	if ( !NavAreaBuildPath( pStartArea, pGoalArea, &goal, costFunc ) )
+	if ( !NavAreaBuildPath( pStartArea, pGoalArea, &goal, costFunc, NULL, 0.0f, TEAM_ANY, false ) )
 		return false;
 
 	// Convert area path to waypoints
@@ -212,47 +220,101 @@ bool CTFBotPathSelector::ComputeFlankingPath( const Vector &start, const Vector 
 	if ( !outPath )
 		return false;
 
+	CTFNavArea *pStartArea = (CTFNavArea *)TheNavMesh->GetNearestNavArea( start );
 	CTFNavArea *pGoalArea = (CTFNavArea *)TheNavMesh->GetNearestNavArea( goal );
-	if ( !pGoalArea )
+	if ( !pStartArea || !pGoalArea )
 		return false;
 
-	// Find areas near goal that approach from a different direction
+	// Collect areas around the goal within a reasonable radius
+	// Use 2-hop neighbors to get areas further away for better flanking
 	CUtlVector< CNavArea * > nearbyAreas;
-	pGoalArea->CollectAdjacentAreas( &nearbyAreas );
+	CUtlVector< CNavArea * > visitedAreas;
+
+	// First, get direct neighbors
+	((CNavArea *)pGoalArea)->CollectAdjacentAreas( &nearbyAreas );
+	visitedAreas.AddToTail( (CNavArea *)pGoalArea );
+
+	// Then get neighbors of neighbors for more flank options
+	CUtlVector< CNavArea * > firstHop;
+	firstHop.AddVectorToTail( nearbyAreas );
+	for ( int i = 0; i < firstHop.Count() && i < 10; ++i ) // Limit to prevent explosion
+	{
+		CUtlVector< CNavArea * > tempAdjacent;
+		firstHop[i]->CollectAdjacentAreas( &tempAdjacent );
+
+		for ( int j = 0; j < tempAdjacent.Count(); ++j )
+		{
+			// Only add if not already in our list
+			if ( !visitedAreas.HasElement( tempAdjacent[j] ) && !nearbyAreas.HasElement( tempAdjacent[j] ) )
+			{
+				nearbyAreas.AddToTail( tempAdjacent[j] );
+				visitedAreas.AddToTail( tempAdjacent[j] );
+			}
+		}
+	}
 
 	if ( nearbyAreas.Count() < 2 )
 		return false; // Not enough areas to flank
 
-	// Pick a random adjacent area as intermediate waypoint for flanking
-	int randomIdx = RandomInt( 0, nearbyAreas.Count() - 1 );
-	CTFNavArea *pFlankArea = (CTFNavArea *)nearbyAreas[randomIdx];
+	// Try multiple random flank candidates to find a valid one
+	int maxAttempts = Min( 5, nearbyAreas.Count() );
+	CUtlVector< int > triedIndices;
 
-	// Build path: start -> flank area -> goal
-	PathInfo_t pathToFlank;
-	if ( !ComputePrimaryPath( start, pFlankArea->GetCenter(), &pathToFlank ) )
-		return false;
-
-	PathInfo_t pathFromFlank;
-	if ( !ComputePrimaryPath( pFlankArea->GetCenter(), goal, &pathFromFlank ) )
-		return false;
-
-	// Combine paths
-	outPath->waypoints.RemoveAll();
-	outPath->waypoints.AddVectorToTail( pathToFlank.waypoints );
-	outPath->waypoints.AddVectorToTail( pathFromFlank.waypoints );
-
-	outPath->type = PATH_FLANK;
-	outPath->length = CalculatePathLength( outPath->waypoints );
-
-	// Check if flanking path is reasonable (not too much longer)
-	PathInfo_t primaryPath;
-	if ( ComputePrimaryPath( start, goal, &primaryPath ) )
+	for ( int attempt = 0; attempt < maxAttempts; ++attempt )
 	{
+		// Pick a random area we haven't tried yet
+		int randomIdx;
+		do {
+			randomIdx = RandomInt( 0, nearbyAreas.Count() - 1 );
+		} while ( triedIndices.HasElement( randomIdx ) && triedIndices.Count() < nearbyAreas.Count() );
+
+		triedIndices.AddToTail( randomIdx );
+		CTFNavArea *pFlankArea = (CTFNavArea *)nearbyAreas[randomIdx];
+
+		// Build path: start -> flank area -> goal
+		PathInfo_t pathToFlank;
+		if ( !ComputePrimaryPath( start, pFlankArea->GetCenter(), &pathToFlank ) )
+			continue;
+
+		PathInfo_t pathFromFlank;
+		if ( !ComputePrimaryPath( pFlankArea->GetCenter(), goal, &pathFromFlank ) )
+			continue;
+
+		// Combine paths
+		outPath->waypoints.RemoveAll();
+		outPath->waypoints.AddVectorToTail( pathToFlank.waypoints );
+		outPath->waypoints.AddVectorToTail( pathFromFlank.waypoints );
+
+		outPath->type = PATH_FLANK;
+		outPath->length = CalculatePathLength( outPath->waypoints );
+
+		// Check if flanking path is reasonable
+		PathInfo_t primaryPath;
+		if ( !ComputePrimaryPath( start, goal, &primaryPath ) )
+			continue;
+
 		if ( !IsPathReasonable( primaryPath, *outPath ) )
-			return false;
+		{
+			if ( tf_bot_path_debug.GetBool() && attempt == maxAttempts - 1 )
+			{
+				DevMsg( "[Path] All flank paths rejected (last: %.1f vs primary %.1f, ratio %.2f)\n",
+						outPath->length, primaryPath.length, outPath->length / primaryPath.length );
+			}
+			continue;
+		}
+
+		// Found a valid flank path!
+		if ( ValidatePath( *outPath ) )
+		{
+			if ( tf_bot_path_debug.GetBool() )
+			{
+				DevMsg( "[Path] Found valid flank path on attempt %d/%d\n", attempt + 1, maxAttempts );
+			}
+			return true;
+		}
 	}
 
-	return ValidatePath( *outPath );
+	return false; // No valid flank path found after all attempts
 }
 
 //----------------------------------------------------------------------------
@@ -275,7 +337,7 @@ bool CTFBotPathSelector::ValidatePath( const PathInfo_t &path )
 }
 
 //----------------------------------------------------------------------------
-// CalculatePathCost - Compute cost with class preferences
+// CalculatePathCost - Compute cost with class preferences and randomization
 //----------------------------------------------------------------------------
 float CTFBotPathSelector::CalculatePathCost( const PathInfo_t &path, CTFBot *pBot )
 {
@@ -288,6 +350,11 @@ float CTFBotPathSelector::CalculatePathCost( const PathInfo_t &path, CTFBot *pBo
 	// Apply class-based preference modifier
 	float flPreference = GetClassPathPreference( path.type, pBot );
 	flCost *= flPreference;
+
+	// Add per-bot randomization (±15%) to create path diversity
+	// This ensures different bots pick different paths even when going to same objective
+	float flRandomFactor = RandomFloat( 0.85f, 1.15f );
+	flCost *= flRandomFactor;
 
 	return flCost;
 }
@@ -353,8 +420,9 @@ float CTFBotPathSelector::CalculatePathLength( const CUtlVector< Vector > &waypo
 //----------------------------------------------------------------------------
 bool CTFBotPathSelector::IsPathReasonable( const PathInfo_t &primaryPath, const PathInfo_t &alternatePath )
 {
-	// Alternative path shouldn't be more than 1.5x the length of primary
-	const float MAX_LENGTH_RATIO = 1.5f;
+	// Alternative path shouldn't be more than 2.0x the length of primary
+	// Increased from 1.5x to allow more path variation
+	const float MAX_LENGTH_RATIO = 2.0f;
 
 	return ( alternatePath.length <= primaryPath.length * MAX_LENGTH_RATIO );
 }

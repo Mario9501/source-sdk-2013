@@ -754,6 +754,8 @@ $Project "Server (TF)"
 					$File	"tf\bot\behavior_tree\tf_bot_bt_node.h"
 					$File	"tf\bot\behavior_tree\tf_bot_bt_navigation.cpp"
 					$File	"tf\bot\behavior_tree\tf_bot_bt_navigation.h"
+					$File	"tf\bot\behavior_tree\tf_bot_bt_objectives.cpp"
+					$File	"tf\bot\behavior_tree\tf_bot_bt_objectives.h"
 				}
 			}
 			

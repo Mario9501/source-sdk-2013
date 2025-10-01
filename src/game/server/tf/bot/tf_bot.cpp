@@ -1460,6 +1460,34 @@ void CTFBot::PhysicsSimulate( void )
 	}
 }
 
+//-----------------------------------------------------------------------------------------------------
+// Override NextBot Update to skip legacy intention system when behavior tree is active
+//-----------------------------------------------------------------------------------------------------
+extern ConVar tf_bot_behavior_tree_enabled;
+
+void CTFBot::Update( void )
+{
+	// If behavior tree is enabled, skip the legacy intention/action system
+	// The behavior tree handles all decision-making and movement
+	if ( m_pBehaviorTree && tf_bot_behavior_tree_enabled.GetBool() )
+	{
+		// Still need to update vision, body, locomotion - just not intention/actions
+		if ( GetVisionInterface() )
+			GetVisionInterface()->Update();
+
+		if ( GetBodyInterface() )
+			GetBodyInterface()->Update();
+
+		if ( GetLocomotionInterface() )
+			GetLocomotionInterface()->Update();
+
+		return;
+	}
+
+	// Otherwise, use the legacy NextBot system
+	BaseClass::Update();
+}
+
 
 //-----------------------------------------------------------------------------------------------------
 void CTFBot::Touch( CBaseEntity *pOther )

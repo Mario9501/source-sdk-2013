@@ -34,28 +34,46 @@ struct PathInfo_t
 {
 	PathInfo_t() : type( PATH_PRIMARY ), length( 0.0f ), cost( 0.0f ) {}
 
-	// Copy helper method to avoid CUtlVector copy issues
-	void CopyFrom( const PathInfo_t &other )
+	// Copy constructor - manually copy waypoints
+	PathInfo_t( const PathInfo_t &other )
+		: type( other.type )
+		, length( other.length )
+		, cost( other.cost )
 	{
 		waypoints.RemoveAll();
 		for ( int i = 0; i < other.waypoints.Count(); ++i )
 		{
 			waypoints.AddToTail( other.waypoints[i] );
 		}
-		type = other.type;
-		length = other.length;
-		cost = other.cost;
+	}
+
+	// Assignment operator - manually copy waypoints
+	PathInfo_t &operator=( const PathInfo_t &other )
+	{
+		if ( this != &other )
+		{
+			waypoints.RemoveAll();
+			for ( int i = 0; i < other.waypoints.Count(); ++i )
+			{
+				waypoints.AddToTail( other.waypoints[i] );
+			}
+			type = other.type;
+			length = other.length;
+			cost = other.cost;
+		}
+		return *this;
+	}
+
+	// Copy helper method for explicit copying
+	void CopyFrom( const PathInfo_t &other )
+	{
+		*this = other;
 	}
 
 	CUtlVector< Vector > waypoints;		// Waypoint positions
 	EPathType type;						// Type of path
 	float length;						// Total path length
 	float cost;							// Cost for this path type
-
-private:
-	// Disable default copy to avoid CUtlVector issues
-	PathInfo_t( const PathInfo_t & ) {}
-	PathInfo_t &operator=( const PathInfo_t & ) { return *this; }
 };
 
 //----------------------------------------------------------------------------

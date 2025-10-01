@@ -7,6 +7,7 @@
 #include "../tf_bot.h"
 #include "tf_bot_behavior_tree.h"
 #include "tf_bot_bt_navigation.h"
+#include "tf_bot_bt_objectives.h"
 
 // ConVars for behavior tree control
 ConVar tf_bot_behavior_tree_enabled( "tf_bot_behavior_tree_enabled", "0", FCVAR_NOTIFY | FCVAR_GAMEDLL,
@@ -72,36 +73,40 @@ void CTFBotBehaviorTree::Update( float deltaTime )
 	// Update evaluation interval from ConVar
 	m_flEvaluationInterval = tf_bot_bt_eval_interval.GetFloat();
 
-	// Only evaluate when timer expires (throttling)
-	if ( !m_evaluationTimer.IsElapsed() )
+	// Periodically re-evaluate which action to take
+	if ( m_evaluationTimer.IsElapsed() )
 	{
-		return;
-	}
+		// Reset timer for next evaluation
+		m_evaluationTimer.Start( m_flEvaluationInterval );
 
-	// Reset timer for next evaluation
-	m_evaluationTimer.Start( m_flEvaluationInterval );
+		// Select highest-weight action
+		BehaviorTreeNode *pSelectedNode = SelectAction();
 
-	// Select highest-weight action
-	BehaviorTreeNode *pSelectedNode = SelectAction();
-
-	if ( pSelectedNode )
-	{
-		m_pSelectedAction = pSelectedNode;
-
-		// Execute the selected action
-		pSelectedNode->Execute( m_pBot );
-
-		// Debug logging
-		if ( tf_bot_bt_debug_nodes.GetBool() )
+		if ( pSelectedNode )
 		{
-			DevMsg( "[TF Bot BT] %s: Selected action '%s' (interval: %.2fs)\n",
-					m_pBot ? m_pBot->GetPlayerName() : "NULL",
-					pSelectedNode->GetNodeName(),
-					m_flEvaluationInterval );
+			m_pSelectedAction = pSelectedNode;
+
+			// Execute the selected action (makes decisions, updates state)
+			pSelectedNode->Execute( m_pBot );
+
+			// Debug logging
+			if ( tf_bot_bt_debug_nodes.GetBool() )
+			{
+				DevMsg( "[TF Bot BT] %s: Selected action '%s' (interval: %.2fs)\n",
+						m_pBot ? m_pBot->GetPlayerName() : "NULL",
+						pSelectedNode->GetNodeName(),
+						m_flEvaluationInterval );
+			}
 		}
+
+		m_flLastEvalTime = gpGlobals->curtime;
 	}
 
-	m_flLastEvalTime = gpGlobals->curtime;
+	// Continuously execute current action every frame (for smooth movement)
+	if ( m_pSelectedAction )
+	{
+		m_pSelectedAction->Execute( m_pBot );
+	}
 }
 
 //----------------------------------------------------------------------------
@@ -117,9 +122,9 @@ void CTFBotBehaviorTree::BuildTree()
 		m_pRootNode = NULL;
 	}
 
-	// Create navigation node for path selection demonstration
-	// This allows visual debugging of Story 1.2 path selection
-	m_pRootNode = new BTNavigationNode();
+	// Create objective-based navigation node (Story 1.3)
+	// This replaces random wandering with objective-driven behavior
+	m_pRootNode = new BTObjectiveNavigationNode();
 
 	if ( tf_bot_bt_debug_nodes.GetBool() )
 	{
