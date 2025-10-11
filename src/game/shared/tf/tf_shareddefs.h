@@ -822,6 +822,7 @@ enum ETFCond
 	TF_COND_HALLOWEEN_HELL_HEAL              = 128,
 	TF_COND_POWERUPMODE_DOMINANT			 = 129,
 	TF_COND_IMMUNE_TO_PUSHBACK				 = 130,
+	TF_COND_METAL_CAP						 = 131,  // Metal Cap powerup: invulnerability + underwater walking + knockback immunity
 		//
 	// ADD NEW ITEMS HERE TO AVOID BREAKING DEMOS
 	//

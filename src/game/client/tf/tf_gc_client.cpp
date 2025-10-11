@@ -778,6 +778,13 @@ void CTFGCClientSystem::OnWebapiInventoryReceived( HTTPRequestCompleted_t* pInfo
 			return;
 		}
 
+		// Validate buffer has data before creating SO cache
+		if ( bufMsgSubscription.TellPut() == 0 )
+		{
+			Warning( "Inventory response contains empty message buffer\n" );
+			return;
+		}
+
 		CGCClientSharedObjectCache *pSOCache = GetGCClient()->AddLocalSOCache( userSteamID, bufMsgSubscription.Base(), bufMsgSubscription.TellPut() );
 		if ( !pSOCache )
 		{

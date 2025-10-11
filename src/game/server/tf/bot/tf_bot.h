@@ -492,6 +492,12 @@ public:
 	bool ShouldReEvaluateCurrentClass( void ) const;
 	void ReEvaluateCurrentClass( void );
 
+	// New bot attribute system integration
+	void SetAttributes( const class CTFBotAttributes &attribs );
+	const class CTFBotAttributes& GetAttributes() const;
+	class CTFBotAttributes& GetAttributes();
+	bool HasAttributesSet() const { return m_bHasAttributes; }
+
 private:
 	CTFBotLocomotion	*m_locomotor;
 	CTFBotBody			*m_body;
@@ -582,6 +588,10 @@ private:
 	CHandle< CCaptureFlag > m_hFollowingFlagTarget;
 
 	CUtlVector< const EventChangeAttributes_t* > m_eventChangeAttributes;
+
+	// New attribute system
+	class CTFBotAttributes *m_pAttributes;
+	bool m_bHasAttributes;
 };
 
 

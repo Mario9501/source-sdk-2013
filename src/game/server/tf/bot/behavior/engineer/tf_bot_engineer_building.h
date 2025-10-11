@@ -8,6 +8,16 @@
 
 class CTFBotHintSentrygun;
 
+class CTFBotEngineerDecision : public Action< CTFBot >
+{
+public:
+	CTFBotEngineerDecision(CTFBot* me, Action < CTFBot >); // Dummy constructor to match other Action classes
+
+
+private:
+	//
+	bool ShouldAttack;
+};
 
 class CTFBotEngineerBuilding : public Action< CTFBot >
 {
