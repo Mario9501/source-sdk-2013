@@ -819,7 +819,7 @@ private:
 	void OnAddCompetitiveLoser( void );
 	void OnAddCondGas( void );
 	void OnAddRocketPack( void );
-
+	void OnAddMetalCap( void );
 
 	void OnRemoveZoomed( void );
 	void OnRemoveBurning( void );
@@ -899,7 +899,8 @@ private:
 	void OnRemoveCondGas( void );
 	void OnRemoveRocketPack( void );
 	void OnRemoveBurningPyro( void );
-	
+	void OnRemoveMetalCap( void );
+
 
 	// Starting a new trend, putting Add and Remove next to each other
 	void OnAddCondParachute( void );

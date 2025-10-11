@@ -953,6 +953,13 @@ void CTFPlayerInventory::LoadLocalLoadout()
 			const char *pszClassName = pClassKey->GetName();
 			const int iClass = GetClassIndexFromString(pszClassName, TF_CLASS_COUNT_ALL);
 
+			// Validate class index before using it
+			if (iClass == TF_CLASS_UNDEFINED || iClass < 0 || iClass >= TF_CLASS_COUNT_ALL)
+			{
+				Warning("LoadLocalLoadout: Invalid class '%s' in loadout file, skipping\n", pszClassName);
+				continue;
+			}
+
 			FOR_EACH_SUBKEY(pClassKey, pLoadoutEntry)
 			{
 				const int iSlot = V_atoi(pLoadoutEntry->GetName());
@@ -964,7 +971,7 @@ void CTFPlayerInventory::LoadLocalLoadout()
 					m_LoadoutItems[iClass][iSlot] = uItemId;
 
 					CEconItemView *pItem = GetInventoryItemByItemID(uItemId);
-					if (pItem) {
+					if (pItem && pItem->GetSOCData()) {
 						pItem->GetSOCData()->Equip(iClass, iSlot);
 					}
 				}
@@ -1050,14 +1057,14 @@ void CTFPlayerInventory::EquipLocal(uint64 ulItemID, equipped_class_t unClass, e
 	{
 		itemid_t ulPreviousItem = m_LoadoutItems[unClass][unSlot];
 		CEconItemView *pPreviousItem = GetInventoryItemByItemID(ulPreviousItem);
-		if (pPreviousItem) {
+		if (pPreviousItem && pPreviousItem->GetSOCData()) {
 			pPreviousItem->GetSOCData()->UnequipFromClass(unClass);
 		}
 	}
 
 	// Equip the new item and add it to our loadout.
 	CEconItemView *pItem = GetInventoryItemByItemID(ulItemID);
-	if ( pItem )
+	if ( pItem && pItem->GetSOCData() )
 	{
 		pItem->GetSOCData()->Equip(unClass, unSlot);
 	}

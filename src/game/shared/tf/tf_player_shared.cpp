@@ -1854,6 +1854,9 @@ void CTFPlayerShared::OnConditionAdded( ETFCond eCond )
 		OnAddHalloweenHellHeal();
 		break;
 
+	case TF_COND_METAL_CAP:
+		OnAddMetalCap();
+		break;
 
 	default:
 		break;
@@ -2198,6 +2201,9 @@ void CTFPlayerShared::OnConditionRemoved( ETFCond eCond )
 		OnRemoveHalloweenHellHeal();
 		break;
 
+	case TF_COND_METAL_CAP:
+		OnRemoveMetalCap();
+		break;
 
 	default:
 		break;
@@ -3506,7 +3512,71 @@ void CTFPlayerShared::OnRemoveInvulnerableWearingOff( void )
 }
 
 //-----------------------------------------------------------------------------
-// Purpose: 
+// Purpose: Metal Cap powerup activated
+//-----------------------------------------------------------------------------
+void CTFPlayerShared::OnAddMetalCap( void )
+{
+#ifdef CLIENT_DLL
+	// TODO: Apply metallic material override in rendering system
+	// For now, just play the Metal Cap music
+	m_pOuter->EmitSound( "MetalCap.Music" );
+#else
+	// SERVER-SIDE: Remove damaging conditions (similar to invulnerability)
+	if ( InCond( TF_COND_BURNING ) )
+	{
+		RemoveCond( TF_COND_BURNING );
+	}
+
+	if ( InCond( TF_COND_BLEEDING ) )
+	{
+		RemoveCond( TF_COND_BLEEDING );
+	}
+
+	if ( InCond( TF_COND_URINE ) )
+	{
+		RemoveCond( TF_COND_URINE );
+	}
+
+	if ( InCond( TF_COND_MAD_MILK ) )
+	{
+		RemoveCond( TF_COND_MAD_MILK );
+	}
+
+	if ( InCond( TF_COND_GAS ) )
+	{
+		RemoveCond( TF_COND_GAS );
+	}
+
+	// Play pickup sound (networked to all players)
+	m_pOuter->EmitSound( "MetalCap.Pickup" );
+#endif
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Metal Cap powerup removed
+//-----------------------------------------------------------------------------
+void CTFPlayerShared::OnRemoveMetalCap( void )
+{
+#ifdef CLIENT_DLL
+	// TODO: Remove metallic material override in rendering system
+	// Stop Metal Cap music
+	m_pOuter->StopSound( "MetalCap.Music" );
+#else
+	// SERVER-SIDE: Handle water state transition
+	// If player is underwater, transition to swimming state (FR-013)
+	if ( m_pOuter->GetWaterLevel() >= WL_Waist )
+	{
+		// Cancel any underwater walking state
+		m_pOuter->SetGroundEntity( NULL );
+
+		// Apply normal buoyancy (will float up)
+		m_pOuter->m_Local.m_flFallVelocity = 0.0f;
+	}
+#endif
+}
+
+//-----------------------------------------------------------------------------
+// Purpose:
 //-----------------------------------------------------------------------------
 void CTFPlayerShared::OnAddPhase( void )
 {
@@ -8056,10 +8126,11 @@ bool CTFPlayerShared::IsCritBoosted( void ) const
 //-----------------------------------------------------------------------------
 bool CTFPlayerShared::IsInvulnerable( void ) const
 {
-	bool bInvuln = InCond( TF_COND_INVULNERABLE ) || 
-				   InCond( TF_COND_INVULNERABLE_USER_BUFF ) || 
+	bool bInvuln = InCond( TF_COND_INVULNERABLE ) ||
+				   InCond( TF_COND_INVULNERABLE_USER_BUFF ) ||
 				   InCond( TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED ) ||
-				   InCond( TF_COND_INVULNERABLE_CARD_EFFECT );
+				   InCond( TF_COND_INVULNERABLE_CARD_EFFECT ) ||
+				   InCond( TF_COND_METAL_CAP );
 
 	return bInvuln;
 }

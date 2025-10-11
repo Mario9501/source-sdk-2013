@@ -33,7 +33,6 @@ bool CheckWinNoEnemyCaps( IGameEvent *event, int iRole );
 
 bool IsLocalTFPlayerClass( int iClass );
 
-
 bool CBaseTFAchievementSimple::LocalPlayerCanEarn( void ) 
 { 
 	if ( TFGameRules() )
