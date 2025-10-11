@@ -219,8 +219,10 @@ CUtlBuffer::CUtlBuffer( int growSize, int initSize, int nFlags ) :
 CUtlBuffer::CUtlBuffer( const void *pBuffer, int nSize, int nFlags ) :
 	m_Memory( (unsigned char*)pBuffer, nSize ), m_Error(0)
 {
-	Assert( nSize != 0 );
-
+	// Allow empty buffers (nSize == 0) for cache-up-to-date responses
+	// Assert( nSize != 0 );  // <-- Comment this out or change to:
+	AssertMsg( pBuffer != nullptr || nSize == 0, "CUtlBuffer: NULL buffer with non-zero size" );
+	
 	m_Get = 0;
 	m_Put = 0;
 	m_nTab = 0;
