@@ -1,3 +1,4 @@
+//Note: This File will be rewriten for better bot support to be more modular and easier to adapt to other gamemodes.
 //========= Copyright Valve Corporation, All rights reserved. ============//
 // tf_bot.cpp
 // Team Fortress NextBot
@@ -13,6 +14,7 @@
 #include "tf_bot.h"
 #include "tf_bot_manager.h"
 #include "tf_bot_vision.h"
+#include "bot/tf_bot_attributes.h"
 #include "tf_team.h"
 #include "bot/map_entities/tf_bot_generator.h"
 #include "trigger_area_capture.h"
@@ -819,16 +821,25 @@ bool CTFBot::GetWeightDesiredClassToSpawn( CUtlVector< ETFClass > &vecClassToSpa
 		return false;
 	}
 
-	struct ClassSelectionInfo
+	struct ClassSelectionInfo						// ClassSelectionInfo (minTeamSizeToSelect, countPerTeamSize, minLimit, maxLimit[])
 	{
 		ETFClass m_class;
 		int m_minTeamSizeToSelect;					// team must have this many members to choose this class
 		int m_countPerTeamSize;						// must have 1 Medic for each 4 team members, for example
 		int m_minLimit;								// minimum that must be present (once other constraints are met)
-		int m_maxLimit[NUM_DIFFICULTY_LEVELS];	// maximum that can be present (-1 for infinite)
+		int m_maxLimit[NUM_DIFFICULTY_LEVELS];		// maximum that can be present (-1 for infinite)
 	};
 
 	const int NoLimit = -1;
+
+	//Testing rosters
+	
+	static ClassSelectionInfo testRoster[] =
+	{				//Testing
+	{TF_CLASS_ENGINEER,			   12, 12, 1,{ 12, 20, 30, 30}}, // 0:Min teamSizeToSelect, 1:CountPerTeamSize, 2:MinLimit, 3-6:MaxLimit per difficulty level
+	};
+
+	// End of Test
 
 	static ClassSelectionInfo defenseRoster[] =
 	{
@@ -880,7 +891,7 @@ bool CTFBot::GetWeightDesiredClassToSpawn( CUtlVector< ETFClass > &vecClassToSpa
 
 	// assume offense
 	ClassSelectionInfo *desiredRoster = offenseRoster;
-
+	// Testing rosters
 	if ( TFGameRules()->IsMatchTypeCompetitive() )
 	{
 		desiredRoster = compRoster;
@@ -1301,6 +1312,10 @@ CTFBot::CTFBot()
 
 	ClearSniperSpots();
 
+	// Initialize new attribute system
+	m_pAttributes = NULL;
+	m_bHasAttributes = false;
+
 	ListenForGameEvent( "teamplay_point_startcapture" );
 	ListenForGameEvent( "teamplay_point_captured" );
 	ListenForGameEvent( "teamplay_round_win" );
@@ -1322,6 +1337,10 @@ CTFBot::~CTFBot()
 
 	if ( m_vision )
 		delete m_vision;
+
+	// Clean up attribute system
+	if ( m_pAttributes )
+		delete m_pAttributes;
 
 	m_suspectedSpyVector.PurgeAndDeleteElements();
 }
@@ -1738,7 +1757,7 @@ void CTFBot::Event_Killed( const CTakeDamageInfo &info )
 				gameeventmanager->FireEvent( event );
 			}
 		}
-		else if ( IsPlayerClass( TF_CLASS_ENGINEER ) )
+		else if (IsPlayerClass(TF_CLASS_ENGINEER))  // TODO: Separate MVM Defenders and Robot Engineers for bot rewrite so defender bots don't decuple buildings on death (as it leaves buildings with no owner, contributing to object elicits filling up)
 		{
 			// in MVM, when an engineer dies, we need to decouple his objects so they stay alive when his bot slot gets recycled
 			while ( GetObjectCount() > 0 )
@@ -4986,6 +5005,60 @@ float CTFBot::GetUberDeployDelayDuration()
 	{
 		return flDelayUberDuration;
 	}
-	
+
 	return -1.f;
+}
+
+
+//-----------------------------------------------------------------------------
+// Purpose: New bot attribute system integration
+//-----------------------------------------------------------------------------
+void CTFBot::SetAttributes( const CTFBotAttributes &attribs )
+{
+	// Allocate if needed
+	if ( !m_pAttributes )
+	{
+		m_pAttributes = new CTFBotAttributes();
+	}
+
+	// Copy attributes
+	m_pAttributes->CopyFrom( attribs );
+	m_bHasAttributes = true;
+
+	// Apply difficulty to existing system for backward compatibility
+	if ( attribs.skill.aimAccuracy < 0.4f )
+	{
+		SetDifficulty( EASY );
+	}
+	else if ( attribs.skill.aimAccuracy < 0.6f )
+	{
+		SetDifficulty( NORMAL );
+	}
+	else if ( attribs.skill.aimAccuracy < 0.8f )
+	{
+		SetDifficulty( HARD );
+	}
+	else
+	{
+		SetDifficulty( EXPERT );
+	}
+}
+
+const CTFBotAttributes& CTFBot::GetAttributes() const
+{
+	// Return default attributes if none set
+	static CTFBotAttributes defaultAttributes;
+	return m_pAttributes ? *m_pAttributes : defaultAttributes;
+}
+
+CTFBotAttributes& CTFBot::GetAttributes()
+{
+	// Allocate if needed
+	if ( !m_pAttributes )
+	{
+		m_pAttributes = new CTFBotAttributes();
+		m_bHasAttributes = true;
+	}
+
+	return *m_pAttributes;
 }
