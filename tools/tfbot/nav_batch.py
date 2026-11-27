@@ -187,8 +187,9 @@ def cmd_run(args):
         os.makedirs(snap)
         args.view = load_ab().snapshot_view(args.view, snap, args.server_so)
     rows = survey(set(args.maps.split(",")) if args.maps else None)
-    todo = [name for name, source in rows if not source]
-    print(f"{len(todo)} maps without a nav; generating with {args.instances} servers", flush=True)
+    todo = [name for name, source in rows if not source or (args.revalidate and source == "generated")]
+    what = "maps without a nav" + (" or with a generated one to re-validate" if args.revalidate else "")
+    print(f"{len(todo)} {what}; running {args.instances} servers", flush=True)
 
     lock = threading.Lock()
     ports = [args.base_port + 10 * i for i in range(args.instances)]
@@ -241,6 +242,7 @@ def main():
     run.add_argument("--views", default=os.path.expanduser("~/srcds/views"))
     run.add_argument("--write", help="write the markdown report here")
     run.add_argument("--server-so", help="use this server.so instead of game/mod_tf/bin's")
+    run.add_argument("--revalidate", action="store_true", help="also load maps whose nav we generated, to re-run validation")
     run.set_defaults(func=cmd_run)
     args = ap.parse_args()
     args.func(args)

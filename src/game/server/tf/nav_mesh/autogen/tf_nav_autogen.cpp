@@ -8,6 +8,7 @@
 #include "nav_mesh/tf_nav_mesh.h"
 #include "nav_mesh/tf_nav_area.h"
 #include "nav_pathfind.h"
+#include "team_train_watcher.h"
 #include "tf_gamerules.h"
 #include "filesystem.h"
 
@@ -79,13 +80,21 @@ static CNavArea *AreaAt( const Vector &pos )
 
 static void CollectObjectives( CUtlVector< Vector > *objectives )
 {
-	// Payload checkpoints and the final point are control points too; the cart
-	// itself is a func_tracktrain.
-	static const char *objectiveClasses[] = { "team_control_point", "item_teamflag", "func_tracktrain" };
+	// Payload checkpoints and the final point are control points too.
+	static const char *objectiveClasses[] = { "team_control_point", "item_teamflag" };
 	for ( int c = 0; c < ARRAYSIZE( objectiveClasses ); ++c )
 	{
 		for ( CBaseEntity *ent = gEntList.FindEntityByClassname( NULL, objectiveClasses[c] ); ent; ent = gEntList.FindEntityByClassname( ent, objectiveClasses[c] ) )
 			objectives->AddToTail( ent->GetAbsOrigin() );
+	}
+
+	// The payload cart: only trains a train watcher drives (maps like cp_well
+	// have decorative trains that nobody can or should reach).
+	for ( CBaseEntity *ent = gEntList.FindEntityByClassname( NULL, "team_train_watcher" ); ent; ent = gEntList.FindEntityByClassname( ent, "team_train_watcher" ) )
+	{
+		CBaseEntity *train = static_cast< CTeamTrainWatcher * >( ent )->GetTrainEntity();
+		if ( train )
+			objectives->AddToTail( train->GetAbsOrigin() );
 	}
 }
 
