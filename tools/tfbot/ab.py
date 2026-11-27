@@ -98,6 +98,9 @@ def server_command(args, job, port, view, lib):
     env = dict(os.environ)
     env["LD_LIBRARY_PATH"] = f"{srv_bin}:{lib}"
     settings = [
+        # first: FCVAR_CHEAT convars in --override (e.g. tf_bot_aim_*) are rejected without it.
+        # It gates only console commands and MvM upgrade purchases, not bot behaviour (DESIGN 3.8).
+        ("sv_cheats", "1"),
         ("sv_lan", "1"),
         ("tf_allow_server_hibernation", "0"),
         ("tf_bot_join_after_player", "0"),
