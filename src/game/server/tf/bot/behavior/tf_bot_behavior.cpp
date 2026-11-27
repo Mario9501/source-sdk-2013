@@ -28,6 +28,9 @@
 #include "bot/behavior/tf_bot_taunt.h"
 #include "bot/behavior/scenario/creep_wave/tf_bot_creep_wave.h"
 #include "player_vs_environment/tf_population_manager.h"
+#include "bot/aim/tf_bot_aim.h"	// TFBot overhaul
+#include "bot/blackboard/tf_bot_blackboard.h"	// TFBot overhaul
+#include "bot/movement/tf_bot_movement.h"		// TFBot overhaul
 
 
 extern ConVar tf_bot_health_ok_ratio;
@@ -610,6 +613,12 @@ Vector CTFBotMainAction::SelectTargetPoint( const INextBot *meBot, const CBaseCo
 {
 	CTFBot *me = (CTFBot *)meBot->GetEntity();
 
+	// TFBot overhaul (M2): human-like aim model
+	if ( subject && TFBotAim::IsActive( me ) )
+	{
+		return TFBotAim::SelectTargetPoint( me, subject );
+	}
+
 	if ( subject )
 	{
 		// if our subject is a sentry gun, aim at it's "eye position", which is updated based on the sentry's level
@@ -1013,6 +1022,9 @@ const CKnownEntity *CTFBotMainAction::SelectMoreDangerousThreat( const INextBot 
 
 	// determine the actual threat
 	const CKnownEntity *threat = SelectMoreDangerousThreatInternal( me, subject, threat1, threat2 );
+
+	// TFBot overhaul (M3): focus fire on the target teammates are shooting
+	threat = TFBotBlackboard::PreferFocusTarget( me, threat1, threat2, threat );
 
 	if ( me->IsDifficulty( CTFBot::EASY ) )
 	{
@@ -1554,6 +1566,10 @@ QueryResultType	CTFBotMainAction::ShouldRetreat( const INextBot *bot ) const
 //-----------------------------------------------------------------------------------------
 void CTFBotMainAction::Dodge( CTFBot *me )
 {
+	// TFBot overhaul (M4): human-like combat movement replaces the stock dodge
+	if ( TFBotMovement::CombatMove( me ) )
+		return;
+
 	// low-skill bots don't dodge
 	if ( me->IsDifficulty( CTFBot::EASY ) )
 		return;

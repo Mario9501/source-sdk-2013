@@ -19,6 +19,7 @@ public:
 	virtual ~CTFBotBody() { }
 
 	virtual float GetHeadAimTrackingInterval( void ) const;			// return how often we should sample our target's position and velocity to update our aim tracking, to allow realistic slop in tracking
+	virtual float GetMaxHeadAngularVelocity( void ) const;			// TFBot overhaul: profile head turn speed with the 'aim' feature
 };
 
 #endif // TF_BOT_BODY_H

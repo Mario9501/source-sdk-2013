@@ -72,7 +72,7 @@ Head turning is a fixed `nb_saccade_speed` of 1000°/s with ±20% jitter on samp
 `CTFBot::GetNextSpawnClassname` (`tf/bot/tf_bot.cpp:1182`) uses fixed per-difficulty tables filtered by `CanBotChooseClass`. It doesn't consider what the team needs.
 
 ### 2.7 Navigation
-- Bots require a `.nav` file. **46 of 238** installed official maps ship one in `tf2_misc_dir.vpk`, and some (koth_probed, pl_pier) carry one inside the BSP. Many popular maps have none, e.g. koth_harvest_final, cp_steel, plr_hightower, ctf_doublecross.
+- Bots require a `.nav` file. Of 238 installed official maps, **46** ship one in `tf2_misc_dir.vpk`, **111** embed one in the BSP's pakfile, and **81 have none**, e.g. koth_harvest_final, cp_steel, plr_hightower, ctf_doublecross (`tools/tfbot/nav_batch.py list`; an earlier estimate of 192 without a nav missed the BSP-embedded ones).
 - **How navs are found:** the loader reads the "MOD" search path first, then the BSP's embedded files (`nav_file.cpp:1401-1406`). `nav_generate` saves to "MOD" (`game/mod_tf/maps/`), which would shadow a shipped nav.
 - **Generation:**
   - `CNavMesh::BeginGeneration` / `AddWalkableSeed` are public (`nav_mesh.h:357-364`), so game code can generate without `sv_cheats`.
@@ -88,7 +88,7 @@ About 10–15% of bot code is MvM-only. `IsMannVsMachineMode` appears 73 times a
 ### 2.9 Known bugs found
 | Bug | Where | Fix in |
 |---|---|---|
-| `IsGoodUberTarget` returns `false` on every path, so the "uber ready and good target, deploy" branch never runs | `tf/bot/behavior/medic/tf_bot_medic_heal.cpp:428-441` (used at 266) | M3 |
+| `IsGoodUberTarget` returns `false` on every path, so a medic with uber ready never sticks with a good (combat-class) patient: the "keep this patient" branch at line 271 never runs. *(Corrected: it gates patient choice, not the deploy decision at line 641.)* | `tf/bot/behavior/medic/tf_bot_medic_heal.cpp:428-441` | M3 (`medic` feature) |
 | *(Not a bug)* `&` where `&&` was meant | `tf_bot_behavior.cpp:1319`. Both sides are `!x`, so the result is identical | none |
 
 ---
@@ -166,7 +166,9 @@ Fixed balancing: profiles are chosen so team skill totals are roughly equal. Eac
 | Bot-only matches | Need `tf_bot_join_after_player 0` (default 1, `tf/bot/tf_bot_manager.cpp:28`) **and** `tf_allow_server_hibernation 0`; otherwise an empty dedicated server stops simulating |
 | `host_timescale` | Not cheat-protected (flags: `replicated` only). Measured: 4× gave about 5.7× the kills of timescale 1 in the same wall time. |
 | srcds setup | `tools/tfbot/ds_setup.py` builds `~/srcds/views/` (see below). Re-run it after adding top-level folders to `game/mod_tf`. |
-| A/B runs | `tools/tfbot/ab.py run …` / `ab.py report …`; output goes to `tfbot_runs/` (gitignored) |
+| A/B runs | `tools/tfbot/ab.py run …` / `ab.py report …` / `ab.py compare …`; output goes to `tfbot_runs/` (gitignored). Each run copies its own `server.so`, so rebuilding during a run is safe. |
+| Building while servers run | `src/buildnocopy` links `server.so`/`client.so` into `src/_vpc_/ninja/release/objs/` without copying them over `game/mod_tf/bin`. The normal build copies with `cp`, which rewrites a `.so` that live servers (or your game) have mapped. Test such a build with `ab.py run --server-so <path>`. |
+| Nav batch | `tools/tfbot/nav_batch.py list` / `run` (M5) |
 
 **Why srcds needs a "server view" of the mod** (all found while setting up M0):
 1. The dedicated server app ships only a **32-bit** launcher. `srcds_linux64` is copied from the SDK Base client install.
@@ -306,6 +308,35 @@ Strafing patterns, scout double-jump dodges, jumping around corners. **No pathfi
 Rocket and sticky jumps as **jump links between nav areas**. This requires changes to the path planner and locomotion (`NextBot/Path/NextBotPathFollow.cpp`, `tf/bot/tf_bot_locomotion.cpp`).
 
 ---
+
+## 5b. Implementation notes (as built)
+
+Every feature below is registered in `tf/bot/features/` and **off by default** ("testing") until A/B results and your playtests support it (§3.7). Turn features on per team, e.g. `tf_bot_features_blu all`, or list them: `tf_bot_features_red profiles,aim,blackboard`. `tf_bot_features_list` shows the registry.
+
+| Milestone | Feature flag(s) | Code | Hooks in Valve code |
+|---|---|---|---|
+| M0 | `test_noop` | `tf/bot/features/`, `tf/bot/metrics/`, `tools/tfbot/` | `CTFBot::Spawn`, `CTFGameStats::Event_PlayerFiredWeapon` |
+| M1 | `profiles` | `tf/bot/profile/`, `shared/tf/tf_bot_profile_schema.*`, `game/mod_tf/scripts/tf_bot_profiles.txt` | `CTFBot::Spawn`, `CTFBot::GetNextSpawnClassname`, `CTFBotBody::GetHeadAimTrackingInterval`, `CTFBotVision::GetMinRecognizeTime`, tactical monitor health threshold |
+| M1b | (client) | `client/tf/tf_bot_profile_editor.cpp` | none (new file, `client_tf.vpc`) |
+| M2 | `aim` | `tf/bot/aim/` | `CTFBotMainAction::SelectTargetPoint`, `CTFBotBody::GetMaxHeadAngularVelocity` (new override), `CTFBot::UpdateLookingAroundForIncomingPlayers` |
+| M3 | `blackboard`, `voice`, `perception`, `medic` | `tf/bot/blackboard/` | `CTFPlayer::SpeakConceptIfAllowed`, `CTFBot::RealizeSpy`, `SelectMoreDangerousThreat`, capture-point and payload-push actions, medic patient choice, `IsGoodUberTarget` |
+| M3b | `engineer` | `tf/bot/engineer/` | engineer building loop, move-to-build (nest choice, carried sentry) |
+| M4 | `movement` | `tf/bot/movement/` | `CTFBotMainAction::Dodge` |
+| M4b | (commands) | `tf/bot/clone/` | none (chained on the M0/M3 hooks) |
+| M5 | (server-wide convars) | `tf/nav_mesh/autogen/`, `tools/tfbot/nav_batch.py`, `game/mod_tf/maps/` | `CTFNavMesh::AddWalkableSeeds` (declared in `tf_nav_mesh.h`) |
+| M6 | `unlocks` | `tf/bot/unlocks/` | `CTFBot::Spawn`, medic uber decision, engineer building loop |
+| M7 | `mobility` | `tf/bot/mobility/` | `CTFBotLocomotion::GetMaxJumpHeight` (no longer inline), `ClimbUpToLedge` (new override), `Update` |
+
+**Console commands:** `tf_bot_features_list`, `tf_bot_features_dump`, `tf_bot_profile_keys`, `tf_bot_profile_list`, `tf_bot_profile_show`, `tf_bot_profile_new`, `tf_bot_profile_set`, `tf_bot_profile_save`, `tf_bot_profile_reload`, `tf_bot_add_profile`, `tf_bot_profile_editor` (client), `tf_bot_record_player`, `tf_bot_profile_from_record`, `tf_bot_nav_validate`, `tf_bot_unlocks_list`.
+
+**Where the build differs from the plan:**
+- **M1:** anonymous bots need no hand-written profiles. Each bot name maps to its tier plus a name-seeded variation, and its style traits and class preferences are derived from the name too, so personalities are stable per name. `tf_bot_human_tier` sets how humans count when balancing.
+- **M1b:** the editor sends `tf_bot_profile_*` commands instead of writing files itself, so the console and the GUI can't disagree. It reads the files only to show values.
+- **M2:** the stock tracking loop is kept, and its levers are profile-driven: tracking interval (M1), turn speed, and the target point with the error model. A longer tracking interval means the bot keeps extrapolating a stale velocity, which is what makes strafing work against it.
+- **M3:** `TheNextBots().OnSpokeConcept` is never called in this codebase, so voice commands come through a new hook in `CTFPlayer::SpeakConceptIfAllowed`. Hearing turns the bot toward an approximate spot (`INTERESTING` look) instead of creating a known entity, which keeps it honest.
+- **M3b:** pickup uses `CTFPlayer::TryToPickupBuilding()` while facing the building; placement reuses the stock "valid placement → fire, else shuffle" loop.
+- **M5:** doors and the payload cart need no special handling during generation (brush-only trace mask; doors are treated as passable). Generation also needs `tf_allow_server_hibernation 0` on an empty server.
+- **M7:** soldiers (rocket launcher, Direct Hit, Cow Mangler) and demomen (stickybomb launcher) only, at 60%+ health.
 
 ## 6. Wishlist (not scheduled)
 - Further unlock batches beyond M6.

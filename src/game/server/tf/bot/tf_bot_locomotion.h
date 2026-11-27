@@ -36,15 +36,17 @@ public:
 	// ILocomotion modifiers
 	//
 	virtual void Jump( void ) OVERRIDE;								// initiate a simple undirected jump in the air
+	virtual bool ClimbUpToLedge( const Vector &landingGoal, const Vector &landingForward, const CBaseEntity *obstacle ) OVERRIDE;	// TFBot overhaul (M7): blast jump high ledges
+
+	// TFBot overhaul (M7): the stock climb (jump + steer to the landing goal),
+	// started by the blast-jump state machine at the right moment.
+	void StartClimbJump( const Vector &landingGoal, const Vector &landingForward ) { BaseClass::ClimbUpToLedge( landingGoal, landingForward, NULL ); }
 
 protected:
 	virtual void AdjustPosture( const Vector &moveGoal ) { }	// never crouch to navigate
 };
 
-inline float CTFBotLocomotion::GetMaxJumpHeight( void ) const
-{
-	// http://developer.valvesoftware.com/wiki/TF2/Team_Fortress_2_Mapper%27s_Reference
-	return 72.0f;
-}
+// GetMaxJumpHeight: 72 (http://developer.valvesoftware.com/wiki/TF2/Team_Fortress_2_Mapper%27s_Reference),
+// or more for bots able to blast jump (TFBot overhaul M7) - see tf_bot_locomotion.cpp.
 
 #endif // TF_BOT_LOCOMOTION_H

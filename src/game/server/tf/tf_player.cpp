@@ -136,6 +136,7 @@
 #include "haptics/haptic_utils.h"
 
 #include "gc_clientsystem.h"
+#include "bot/blackboard/tf_bot_blackboard.h"	// TFBot overhaul
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -19921,6 +19922,12 @@ bool CTFPlayer::SpeakConceptIfAllowed( int iConcept, const char *modifiers, char
 
 		// play normally
 		bReturn = SpeakIfAllowed( g_pszMPConcepts[iConcept], modifiers, pszOutResponseChosen, bufsize, filter );
+	}
+
+	// TFBot overhaul (M3): voice commands feed the bots' team blackboard
+	if ( bReturn )
+	{
+		TFBotBlackboard::OnPlayerSpoke( this, iConcept );
 	}
 
 	//Add bubble on top of a player calling for medic.

@@ -90,34 +90,39 @@ def build_jobs(args, run_id):
 
 
 def server_command(args, job, port, view, lib):
+    """Settings go into a per-job cfg: srcds caps the command line at 512 chars."""
     srv_bin = os.path.join(args.srcds, "bin", "linux64")
     env = dict(os.environ)
     env["LD_LIBRARY_PATH"] = f"{srv_bin}:{lib}"
-    cmd = [
-        "./srcds_linux64", "-game", view, "-console", "-norestart", "-insecure",
-        "-port", str(port),
-        "+sv_lan", "1",
-        "+maxplayers", str(args.bots),
-        "+tf_allow_server_hibernation", "0",
-        "+tf_bot_join_after_player", "0",
-        "+tf_bot_auto_vacate", "0",          # else the quota keeps a slot free: 12 vs 11
-        "+tf_bot_quota_mode", "normal",
-        "+tf_bot_quota", str(args.bots),
-        "+tf_bot_difficulty", str(args.difficulty),
-        "+mp_timelimit", "0",
-        "+mp_maxrounds", "0",
-        "+mp_winlimit", "0",
-        "+mp_bonusroundtime", "5",
-        "+host_timescale", str(args.timescale),
-        "+tf_bot_features_red", job["red"],
-        "+tf_bot_features_blu", job["blu"],
-        "+tf_bot_metrics", "1",
-        "+tf_bot_metrics_run_id", job["metrics_run_id"],
-        "+tf_bot_ab_rounds", str(args.rounds),
-    ]
-    for cvar, value in job.get("overrides", {}).items():
-        cmd += [f"+{cvar}", str(value)]
-    cmd += ["+map", job["map"]]
+    settings = [
+        ("sv_lan", "1"),
+        ("tf_allow_server_hibernation", "0"),
+        ("tf_bot_join_after_player", "0"),
+        ("tf_bot_auto_vacate", "0"),          # else the quota keeps a slot free: 12 vs 11
+        ("tf_bot_quota_mode", "normal"),
+        ("tf_bot_quota", str(args.bots)),
+        ("tf_bot_difficulty", str(args.difficulty)),
+        ("mp_timelimit", "0"),
+        ("mp_maxrounds", "0"),
+        ("mp_winlimit", "0"),
+        ("mp_bonusroundtime", "5"),
+        ("host_timescale", str(args.timescale)),
+        ("tf_bot_features_red", job["red"]),
+        ("tf_bot_features_blu", job["blu"]),
+        ("tf_bot_metrics", "1"),
+        ("tf_bot_metrics_run_id", job["metrics_run_id"]),
+        ("tf_bot_ab_rounds", str(args.rounds)),
+    ] + [(cvar, str(value)) for cvar, value in job.get("overrides", {}).items()]
+
+    cfg_dir = os.path.join(view, "cfg")
+    os.makedirs(cfg_dir, exist_ok=True)
+    cfg_name = f"tfbot_{job['name']}.cfg"
+    with open(os.path.join(cfg_dir, cfg_name), "w") as f:
+        for cvar, value in settings:
+            f.write(f'{cvar} "{value}"\n')
+
+    cmd = ["./srcds_linux64", "-game", view, "-console", "-norestart", "-insecure", "-port", str(port),
+           "+maxplayers", str(args.bots), "+exec", cfg_name, "+map", job["map"]]
     return cmd, env
 
 
@@ -157,7 +162,7 @@ def run_job(args, job, port, view, lib, run_dir, print_lock):
     return result
 
 
-def snapshot_view(shared_view, run_dir):
+def snapshot_view(shared_view, run_dir, server_override=None):
     """Per-run copy of the server view with its own copy of the binaries.
 
     Rebuilding the mod during a run then can't swap code under live servers
@@ -177,7 +182,8 @@ def snapshot_view(shared_view, run_dir):
     for f in os.listdir(bin_src):
         if f == "server_srv.so":
             continue
-        shutil.copy2(os.path.realpath(os.path.join(bin_src, f)), os.path.join(view, "bin", "linux64", f))
+        src = server_override if ( f == "server.so" and server_override ) else os.path.realpath(os.path.join(bin_src, f))
+        shutil.copy2(src, os.path.join(view, "bin", "linux64", f))
     os.symlink("server.so", os.path.join(view, "bin", "linux64", "server_srv.so"))
     return view
 
@@ -194,7 +200,7 @@ def cmd_run(args):
     if os.path.exists(run_dir):
         sys.exit(f"run directory already exists: {run_dir}")
     os.makedirs(run_dir)
-    view = snapshot_view(shared_view, run_dir)
+    view = snapshot_view(shared_view, run_dir, args.server_so)
     git_rev = subprocess.run(["git", "-C", REPO, "describe", "--always", "--dirty"],
                              capture_output=True, text=True).stdout.strip()
 
@@ -372,6 +378,16 @@ def cmd_report(args):
         cells = [f"{per_team[who][k] / n_rounds:.1f}" if n_rounds else "n/a" for k in TEAM_FIELDS]
         acc = f"{100 * hits[who][0] / hits[who][1]:.1f}%" if hits[who][1] else "n/a"
         lines.append(f"| {label} | " + " | ".join(cells) + f" | {acc} |")
+    events = {}
+    for job, rec in rounds:
+        if counted(rec):
+            for k, v in rec.get("feature_events", {}).items():
+                events[k] = events.get(k, 0) + v
+    if events and n_rounds:
+        lines.append("")
+        lines.append("Feature activity per round (all bots; in a features-vs-stock run only the "
+                     "features side produces these): " +
+                     ", ".join(f"`{k}` {v / n_rounds:.1f}" for k, v in sorted(events.items())))
     if durations:
         durations.sort()
         lines.append("")
@@ -511,6 +527,7 @@ def main():
     run.add_argument("--override", action="append",
                      help="per-map convar override MAP:CVAR=VALUE (repeatable; recorded in the report)")
     run.add_argument("--label", help="run id (default: timestamp)")
+    run.add_argument("--server-so", help="use this server.so instead of game/mod_tf/bin's (e.g. a build not copied yet)")
     run.add_argument("--base-port", type=int, default=27100)
     run.add_argument("--srcds", default=os.path.expanduser("~/srcds/sdk2013"))
     run.add_argument("--views", default=os.path.expanduser("~/srcds/views"))

@@ -26,6 +26,9 @@
 #include "tf_weaponbase_gun.h"
 #include "bot/tf_bot.h"
 #include "bot/features/tf_bot_features.h"
+#include "bot/clone/tf_bot_clone.h"
+#include "nav_mesh/autogen/tf_nav_autogen.h"
+#include "nav_mesh.h"
 #include <time.h>
 
 // memdbgon must be the last include file in a .cpp file!!!
@@ -324,6 +327,7 @@ static CTFBotMetrics s_tfBotMetrics;
 void TFBotMetrics_OnWeaponFired( CTFPlayer *player, CTFWeaponBase *weapon )
 {
 	s_tfBotMetrics.OnWeaponFired( player, weapon );
+	TFBotClone::OnWeaponFired( player, weapon );	// M4b playstyle recording shares this hook
 }
 
 
@@ -541,6 +545,13 @@ void CTFBotMetrics::WriteRoundStart()
 	CTFBotJsonLine line( "round_start" );
 	line.Int( "round", m_round );
 	line.Float( "t", gpGlobals->curtime - m_matchStartGameTime );
+	const TFNavStatus_t &nav = TFNavAutogen::GetStatus();
+	line.BeginObject( "nav" );
+	line.Bool( "loaded", TheNavMesh->IsLoaded() );
+	line.Bool( "generated", nav.m_generated );
+	line.Bool( "verified", nav.m_validated && nav.m_verified );
+	line.Int( "areas", nav.m_areaCount );
+	line.EndObject();
 	line.BeginObject( "teams" );
 	for ( int s = 0; s < SLOT_COUNT; ++s )
 	{
@@ -595,6 +606,20 @@ void CTFBotMetrics::WriteRoundEnd( int winnerTeam, int reason, bool stalemate, b
 
 	m_roundTicks.Write( line, "tick_ms" );
 	WriteFeatureCosts( line, m_roundCostStart );
+
+	line.BeginObject( "feature_events" );
+	const char *eventName = NULL;
+	for ( int i = 0; ; ++i )
+	{
+		int count = TFBotFeatures::GetEventCount( i, &eventName );
+		if ( count < 0 )
+			break;
+		if ( count > 0 )
+			line.Int( eventName, count );
+	}
+	line.EndObject();
+	TFBotFeatures::ResetEventCounts();
+
 	Emit( line );
 	filesystem->Flush( m_file );
 }
@@ -881,6 +906,7 @@ void CTFBotMetrics::FireGameEvent( IGameEvent *event )
 		m_roundTicks.Reset();
 		for ( int f = 0; f < TFBOT_FEATURE_COUNT; ++f )
 			m_roundCostStart[f] = TFBotFeatures::GetCost( (ETFBotFeature)f );
+		TFBotFeatures::ResetEventCounts();
 		WriteRoundStart();
 	}
 	else if ( FStrEq( name, "teamplay_round_win" ) )

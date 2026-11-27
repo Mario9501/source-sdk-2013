@@ -57,6 +57,7 @@ public:
 	virtual bool IsAuthoritative( void ) const { return true; }			// TF2 has nice clean environments
 
 	virtual unsigned int GetGenerationTraceMask( void ) const;			// return the mask used by traces when generating the mesh
+	virtual void AddWalkableSeeds( void );								// TFBot overhaul (M5): seed from spawns and objectives (tf_nav_autogen.cpp)
 
 	void OnObjectChanged();
 	bool IsSentryGunHere( CTFNavArea *area ) const;						// return true if a Sentry Gun has been built in the given area

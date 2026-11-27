@@ -1,0 +1,14 @@
+#!/bin/bash
+# Build and link server.so/client.so into _vpc_/ninja/release/objs/ WITHOUT copying them over
+# game/mod_tf/bin (ninja copies with cp, which rewrites a .so that running servers have mapped).
+# Use while A/B servers are running; test the result with tools/tfbot/ab.py run --server-so ...
+set -euo pipefail
+script=$(readlink -f -- "$0")
+pushd "$(dirname -- "$script")" > /dev/null
+source sdk_container
+run_in_sniper "$@"
+export VPC_NINJA_BUILD_MODE="release"
+ninja -f _vpc_/ninja/sdk_everything_release.ninja -j10 \
+  _vpc_/ninja/release/objs/server_tf/game/server/server.so \
+  _vpc_/ninja/release/objs/client_tf/game/client/client.so
+popd > /dev/null

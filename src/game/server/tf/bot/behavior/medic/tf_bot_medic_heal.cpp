@@ -15,6 +15,9 @@
 #include "bot/behavior/scenario/capture_the_flag/tf_bot_fetch_flag.h"
 #include "nav_mesh.h"
 #include "tier0/vprof.h"
+#include "bot/features/tf_bot_features.h"		// TFBot overhaul
+#include "bot/blackboard/tf_bot_blackboard.h"	// TFBot overhaul
+#include "bot/unlocks/tf_bot_unlocks.h"		// TFBot overhaul
 
 extern ConVar tf_bot_path_lookahead_range;
 
@@ -133,7 +136,10 @@ public:
 		CTFPlayer *contenderCaller = NULL;
 		CTFBotPathCost cost( m_me, FASTEST_ROUTE );
 		
-		if ( !current->IsBot() && current->IsCallingForMedic() && m_me->IsRangeLessThan( current, tf_bot_medic_max_call_response_range.GetFloat() ) )
+		// TFBot overhaul (M3): with the blackboard, bots' calls count too
+		bool answerBots = TFBotBlackboard::MedicAnswersBotCalls( m_me );
+
+		if ( ( !current->IsBot() || answerBots ) && current->IsCallingForMedic() && m_me->IsRangeLessThan( current, tf_bot_medic_max_call_response_range.GetFloat() ) )
 		{
 			// check actual travel range
 			if ( NavAreaTravelDistance( m_me->GetLastKnownArea(), current->GetLastKnownArea(), cost, 1.5f * tf_bot_medic_max_call_response_range.GetFloat() ) >= 0.0 )
@@ -142,7 +148,7 @@ public:
 			}
 		}
 
-		if ( !contender->IsBot() && contender->IsCallingForMedic() && m_me->IsRangeLessThan( contender, tf_bot_medic_max_call_response_range.GetFloat() ) )
+		if ( ( !contender->IsBot() || answerBots ) && contender->IsCallingForMedic() && m_me->IsRangeLessThan( contender, tf_bot_medic_max_call_response_range.GetFloat() ) )
 		{
 			// check actual travel range
 			if ( NavAreaTravelDistance( m_me->GetLastKnownArea(), contender->GetLastKnownArea(), cost, 1.5f * tf_bot_medic_max_call_response_range.GetFloat() ) >= 0.0 )
@@ -436,7 +442,10 @@ bool CTFBotMedicHeal::IsGoodUberTarget( CTFPlayer *who ) const
 		return false;
 	}
 
-	return false;
+	// TFBot overhaul (M3): stock code returns false here too, so the "uber ready
+	// and this is a good target" deploy branch never ran. The 'medic' feature
+	// restores the evident intent: combat classes are good uber targets.
+	return TFBotFeatures::IsEnabled( GetActor(), TFBOT_FEATURE_MEDIC );
 }
 
 
@@ -675,11 +684,17 @@ ActionResult< CTFBot >	CTFBotMedicHeal::Update( CTFBot *me, float interval )
 				// special case for bots in mvm spawn zones
 				if ( TFGameRules()->IsMannVsMachineMode() )
 				{
-					if ( m_patient->m_Shared.InCond( TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED ) && 
+					if ( m_patient->m_Shared.InCond( TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED ) &&
 						 me->m_Shared.InCond( TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED ) )
 					{
 						useUber = false;
 					}
+				}
+
+				// TFBot overhaul (M6): the Kritzkrieg pops for a fight, not to save a life
+				if ( TFBotUnlocks::IsKritz( me, medigun ) )
+				{
+					useUber = TFBotUnlocks::ShouldDeployKritz( me, m_patient );
 				}
 			}
 

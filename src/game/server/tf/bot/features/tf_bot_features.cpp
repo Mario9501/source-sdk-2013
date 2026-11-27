@@ -21,6 +21,16 @@ struct TFBotFeatureInfo_t
 static const TFBotFeatureInfo_t s_featureInfo[ TFBOT_FEATURE_COUNT ] =
 {
 	{ "test_noop", false, "M0 plumbing check: registered and recorded, changes no behaviour" },
+	{ "profiles",  false, "M1 per-bot skill/style profiles (aim tracking, reaction), balanced assignment, team-needs class choice" },
+	{ "aim",       false, "M2 human-like aim: wobble, lag on moving targets, flick overshoot, real projectile leading, pre-aim" },
+	{ "blackboard", false, "M3 shared team knowledge (sentries, spies), group up after wipes / for uber, focus fire, medics answer bot calls" },
+	{ "voice",     false, "M3 voice callouts: medic, spy, sentry ahead, uber ready, go go go (rate-limited)" },
+	{ "perception", false, "M3 hearing nearby footsteps (approximate position) and glancing around when idle" },
+	{ "medic",     false, "M3 medic fixes: IsGoodUberTarget no longer always false" },
+	{ "engineer",  false, "M3b engineer styles (turtle/forward/battle), carry buildings instead of blowing them up, save dying sentries, help teammates' buildings" },
+	{ "movement",  false, "M4 combat movement: sustained strafes with human-like direction changes, combat jumps, scout double jumps, medic strafing" },
+	{ "unlocks",   false, "M6 whitelisted unlocks from profile loadouts: Direct Hit, Kritzkrieg (own deploy logic), Gunslinger (battle engineer)" },
+	{ "mobility",  false, "M7 soldiers rocket jump and demos sticky jump up ledges the path planner can now use" },
 };
 
 COMPILE_TIME_ASSERT( TFBOT_FEATURE_COUNT <= 64 );
@@ -208,6 +218,45 @@ double TFBotFeatures::GetCost( ETFBotFeature feature )
 	if ( feature < 0 || feature >= TFBOT_FEATURE_COUNT )
 		return 0.0;
 	return s_featureCost[ feature ];
+}
+
+
+//-----------------------------------------------------------------------------
+static const int kMaxEvents = 48;
+static const char *s_eventName[ kMaxEvents ];
+static int s_eventCount[ kMaxEvents ];
+static int s_numEvents = 0;
+
+void TFBotFeatures::CountEvent( const char *name )
+{
+	for ( int i = 0; i < s_numEvents; ++i )
+	{
+		if ( s_eventName[i] == name || !V_strcmp( s_eventName[i], name ) )
+		{
+			++s_eventCount[i];
+			return;
+		}
+	}
+	if ( s_numEvents < kMaxEvents )
+	{
+		s_eventName[ s_numEvents ] = name;
+		s_eventCount[ s_numEvents ] = 1;
+		++s_numEvents;
+	}
+}
+
+int TFBotFeatures::GetEventCount( int index, const char **name )
+{
+	if ( index < 0 || index >= s_numEvents )
+		return -1;
+	*name = s_eventName[ index ];
+	return s_eventCount[ index ];
+}
+
+void TFBotFeatures::ResetEventCounts()
+{
+	for ( int i = 0; i < s_numEvents; ++i )
+		s_eventCount[i] = 0;
 }
 
 

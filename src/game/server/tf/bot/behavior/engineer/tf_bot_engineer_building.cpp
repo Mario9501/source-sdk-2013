@@ -22,6 +22,7 @@
 #include "bot/behavior/tf_bot_get_ammo.h"
 #include "bot/map_entities/tf_bot_hint_teleporter_exit.h"
 #include "bot/map_entities/tf_bot_hint_sentrygun.h"
+#include "bot/engineer/tf_bot_engineer_overhaul.h"	// TFBot overhaul
 #include "NextBotUtil.h"
 
 
@@ -281,6 +282,22 @@ ActionResult< CTFBot >	CTFBotEngineerBuilding::Update( CTFBot *me, float interva
 	isUnderAttack |= ( mySentry && ( mySentry->HasSapper() || mySentry->IsPlasmaDisabled() ) );
 	isUnderAttack |= ( myDispenser && ( myDispenser->HasSapper() || myDispenser->IsPlasmaDisabled() ) );
 
+	// TFBot overhaul (M3b): put down whatever we're carrying, here
+	if ( TFBotEngineer::IsActive( me ) && me->m_Shared.IsCarryingObject() )
+	{
+		return SuspendFor( new CTFBotEngineerPlaceCarried, "Placing the building I'm carrying" );
+	}
+
+	// TFBot overhaul (M3b): grab a dying sentry and carry it back to safety
+	if ( TFBotEngineer::ShouldSaveSentry( me, mySentry ) )
+	{
+		Vector retreatSpot;
+		if ( TFBotEngineer::FindRetreatSpot( me, &retreatSpot ) )
+		{
+			return SuspendFor( new CTFBotEngineerPickupAndMove( mySentry, retreatSpot ), "Saving my sentry" );
+		}
+	}
+
 	me->StartLookingAroundForEnemies();
 
 	// try to build a Sentry
@@ -316,6 +333,12 @@ ActionResult< CTFBot >	CTFBotEngineerBuilding::Update( CTFBot *me, float interva
 	// I have a Sentry
 	m_hasBuiltSentry = true;
 
+	// TFBot overhaul (M6): battle engineers fight beside their mini
+	if ( TFBotEngineer::ShouldFight( me, mySentry ) )
+	{
+		return SuspendFor( new CTFBotAttack, "Battle engineer: fighting beside my mini" );
+	}
+
 	if ( m_sentryBuildHint != NULL && !m_sentryBuildHint->IsEnabled() )
 	{
 		// our hint has been disabled and no longer has influence on our behavior
@@ -337,6 +360,17 @@ ActionResult< CTFBot >	CTFBotEngineerBuilding::Update( CTFBot *me, float interva
 			// the point has moved, only keep sentry as long as it keeps attacking
 			if ( mySentry->GetTimeSinceLastFired() > 10.0f )
 			{
+				// TFBot overhaul (M3b): carry the sentry to the new spot instead of blowing it up
+				if ( TFBotEngineer::IsActive( me ) && me->CanPickupBuilding( mySentry ) )
+				{
+					if ( myTeleportExit )
+					{
+						myTeleportExit->DetonateObject();
+					}
+					me->SpeakConceptIfAllowed( MP_CONCEPT_PLAYER_MOVEUP );
+					return ChangeTo( new CTFBotEngineerPickupAndMove( mySentry ), "Packing up my sentry to move closer to the point" );
+				}
+
 				mySentry->DetonateObject();
 
 				// if we built here because of a hint, disable that hint so we don't use it and rebuild here again
@@ -363,6 +397,13 @@ ActionResult< CTFBot >	CTFBotEngineerBuilding::Update( CTFBot *me, float interva
 				return ChangeTo( new CTFBotEngineerMoveToBuild, "Need to move my gear closer to the point!" );
 			}
 		}
+	}
+
+	// TFBot overhaul (M3b): forward engineers move the nest up as the team advances
+	if ( TFBotEngineer::ShouldAdvanceNest( me, mySentry, isUnderAttack ) )
+	{
+		me->SpeakConceptIfAllowed( MP_CONCEPT_PLAYER_MOVEUP );
+		return ChangeTo( new CTFBotEngineerPickupAndMove( mySentry ), "Moving my nest up with the push" );
 	}
 
 	// if my dispenser is too far away from my sentry, destroy and rebuild it next update
@@ -413,7 +454,7 @@ ActionResult< CTFBot >	CTFBotEngineerBuilding::Update( CTFBot *me, float interva
 			// don't rebuild immediately after building is destroyed
 			m_dispenserRetryTimer.Start( dispenserRebuildInterval );
 		}
-		else if ( m_dispenserRetryTimer.IsElapsed() && !isUnderAttack )
+		else if ( m_dispenserRetryTimer.IsElapsed() && !isUnderAttack && !TFBotEngineer::SkipDispenser( me ) )
 		{
 			m_dispenserRetryTimer.Start( dispenserRebuildInterval );
 
@@ -462,6 +503,13 @@ ActionResult< CTFBot >	CTFBotEngineerBuilding::Update( CTFBot *me, float interva
 			// drop a teleporter exit near our sentry
 			return SuspendFor( new CTFBotEngineerBuildTeleportExit(), "Building teleporter exit" );
 		}
+	}
+
+	// TFBot overhaul (M3b): nest is done - help teammates' buildings nearby
+	CBaseObject *buildingToHelp = TFBotEngineer::FindBuildingToHelp( me, mySentry, isUnderAttack );
+	if ( buildingToHelp )
+	{
+		return SuspendFor( new CTFBotEngineerHelpBuilding( buildingToHelp ), "Helping a teammate's building" );
 	}
 
 	// everything is built - maintain them

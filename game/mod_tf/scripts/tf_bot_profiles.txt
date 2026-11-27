@@ -1,0 +1,138 @@
+// TFBot overhaul: stock bot profiles (docs/tfbot/DESIGN.md, M1)
+//
+// Your own profiles go in tf_bot_profiles_custom.txt (same format, never
+// overwritten); an entry there with the same name replaces one here.
+//
+// Entry kinds:
+//   tier_*    skill tiers; tf_bot_difficulty 0..3 picks tier_new..tier_competitive
+//   preset_*  reusable style building blocks, pulled in with "presets"
+//   anything else is a named profile: a bot with that name uses it
+//
+// Keys and ranges: run tf_bot_profile_keys in the console. Values outside a
+// key's range are clamped with a warning. "base" inherits from another entry;
+// "presets" applies a comma list of presets on top. Bots without a named
+// profile get their tier's values with a small per-name variation, and their
+// style traits and class preferences are derived from their name.
+//
+// Skill values are a starting point from published human data (visual reaction
+// around 200-250 ms for experienced FPS players) and are meant to be tuned by
+// playtesting (design doc 3.2).
+
+"TFBotProfiles"
+{
+	// ---------------------------------------------------------------- tiers
+
+	"tier_new"
+	{
+		"reaction_time"			"0.70"
+		"aim_error"				"8"
+		"aim_tracking"			"0.35"
+		"aim_speed"				"300"
+		"aim_overshoot"			"0.35"
+		"aim_motion_penalty"	"1.4"
+		"decision_quality"		"0.15"
+		"awareness"				"0.20"
+		"strafe"				"0.3"
+	}
+
+	"tier_casual"
+	{
+		"reaction_time"			"0.45"
+		"aim_error"				"5"
+		"aim_tracking"			"0.20"
+		"aim_speed"				"500"
+		"aim_overshoot"			"0.25"
+		"aim_motion_penalty"	"1.0"
+		"decision_quality"		"0.40"
+		"awareness"				"0.40"
+		"strafe"				"0.4"
+	}
+
+	"tier_experienced"
+	{
+		"reaction_time"			"0.30"
+		"aim_error"				"3"
+		"aim_tracking"			"0.10"
+		"aim_speed"				"800"
+		"aim_overshoot"			"0.15"
+		"aim_motion_penalty"	"0.6"
+		"decision_quality"		"0.65"
+		"awareness"				"0.65"
+		"strafe"				"0.5"
+	}
+
+	"tier_competitive"
+	{
+		"reaction_time"			"0.22"
+		"aim_error"				"1.5"
+		"aim_tracking"			"0.06"
+		"aim_speed"				"1100"
+		"aim_overshoot"			"0.08"
+		"aim_motion_penalty"	"0.35"
+		"decision_quality"		"0.88"
+		"awareness"				"0.85"
+		"strafe"				"0.6"
+	}
+
+	// -------------------------------------------------------------- presets
+
+	"preset_turtle_engie"
+	{
+		"engineer_style"		"turtle"
+		"aggression"			"0.25"
+		"classes"				{ "engineer" "5" }
+	}
+
+	"preset_forward_engie"
+	{
+		"engineer_style"		"forward"
+		"aggression"			"0.55"
+		"classes"				{ "engineer" "5" }
+	}
+
+	"preset_battle_engie"
+	{
+		"engineer_style"		"battle"
+		"aggression"			"0.85"
+		"classes"				{ "engineer" "5" }
+	}
+
+	"preset_pocket_medic"
+	{
+		"aggression"			"0.3"
+		"retreat_health"		"0.5"
+		"callout_rate"			"0.8"
+		"classes"				{ "medic" "6" }
+	}
+
+	"preset_roamer_soldier"
+	{
+		"aggression"			"0.8"
+		"flank"					"0.7"
+		"strafe"				"0.7"
+		"classes"				{ "soldier" "6" }
+	}
+
+	"preset_flank_scout"
+	{
+		"aggression"			"0.75"
+		"flank"					"0.9"
+		"strafe"				"0.9"
+		"retreat_health"		"0.4"
+		"classes"				{ "scout" "6" }
+	}
+
+	// ------------------------------------------------- example named profiles
+
+	"Totally Not A Bot"
+	{
+		"base"					"tier_experienced"
+		"presets"				"preset_roamer_soldier"
+	}
+
+	"Hat-Wearing MAN"
+	{
+		"base"					"tier_casual"
+		"presets"				"preset_turtle_engie"
+	}
+}

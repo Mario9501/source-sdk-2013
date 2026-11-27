@@ -8,6 +8,28 @@
 #include "tf_bot.h"
 #include "tf_bot_locomotion.h"
 #include "particle_parse.h"
+#include "bot/mobility/tf_bot_mobility.h"	// TFBot overhaul
+
+
+//-----------------------------------------------------------------------------------------------------
+float CTFBotLocomotion::GetMaxJumpHeight( void ) const
+{
+	// TFBot overhaul (M7): capable soldiers/demos can plan to blast jump higher
+	CTFBot *me = ToTFBot( GetBot()->GetEntity() );
+	return me ? TFBotMobility::GetMaxJumpHeight( me ) : 72.0f;
+}
+
+
+//-----------------------------------------------------------------------------------------------------
+bool CTFBotLocomotion::ClimbUpToLedge( const Vector &landingGoal, const Vector &landingForward, const CBaseEntity *obstacle )
+{
+	// TFBot overhaul (M7): ledges above a normal jump get a rocket/sticky jump
+	CTFBot *me = ToTFBot( GetBot()->GetEntity() );
+	if ( me && TFBotMobility::HandleClimb( me, landingGoal, landingForward ) )
+		return true;
+
+	return BaseClass::ClimbUpToLedge( landingGoal, landingForward, obstacle );
+}
 
 
 //-----------------------------------------------------------------------------------------
@@ -20,6 +42,9 @@ void CTFBotLocomotion::Update( void )
 	{
 		return;
 	}
+
+	// TFBot overhaul (M7): run any blast jump in progress
+	TFBotMobility::Update( me );
 
 	// always 'crouch jump'
 	if ( IsOnGround() )

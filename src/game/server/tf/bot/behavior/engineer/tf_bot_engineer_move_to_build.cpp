@@ -19,6 +19,7 @@
 #include "bot/behavior/tf_bot_retreat_to_cover.h"
 #include "bot/behavior/engineer/tf_bot_engineer_build_teleport_exit.h"
 #include "trigger_area_capture.h"
+#include "bot/engineer/tf_bot_engineer_overhaul.h"	// TFBot overhaul
 
 #include "raid/tf_raid_logic.h"
 
@@ -267,6 +268,12 @@ void CTFBotEngineerMoveToBuild::SelectBuildLocation( CTFBot *me )
 	}
 
 
+	// TFBot overhaul (M3b): forward-style engineers nest just behind the team's front
+	if ( TFBotEngineer::PickNestLocation( me, &m_sentryBuildLocation ) )
+	{
+		return;
+	}
+
 	// collect nav area candidates
 	CollectBuildAreas( me );
 
@@ -338,7 +345,7 @@ ActionResult< CTFBot >	CTFBotEngineerMoveToBuild::Update( CTFBot *me, float inte
 	}
 
 	CBaseObject	*mySentry = me->GetObjectOfType( OBJ_SENTRYGUN );
-	if ( mySentry )
+	if ( mySentry && !mySentry->IsCarried() )	// TFBot overhaul (M3b): a carried sentry goes to the new spot
 	{
 		// we already have a sentry from a previous life - continue what we were doing
 

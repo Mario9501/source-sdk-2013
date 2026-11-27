@@ -14,6 +14,7 @@
 #include "bot/behavior/scenario/payload/tf_bot_payload_push.h"
 #include "bot/behavior/medic/tf_bot_medic_heal.h"
 #include "bot/behavior/engineer/tf_bot_engineer_build.h"
+#include "bot/blackboard/tf_bot_blackboard.h"	// TFBot overhaul
 
 
 extern ConVar tf_bot_path_lookahead_range;
@@ -90,6 +91,12 @@ ActionResult< CTFBot >	CTFBotPayloadPush::Update( CTFBot *me, float interval )
 		m_path.Compute( me, pushPos, cost );
 
 		m_repathTimer.Start( RandomFloat( 0.2f, 0.4f ) );
+	}
+
+	// TFBot overhaul (M3): don't run ahead alone while the team regroups / waits for uber
+	if ( TFBotBlackboard::ShouldHoldAdvance( me, cart->WorldSpaceCenter() ) )
+	{
+		return Continue();
 	}
 
 	// push the cartTrigger

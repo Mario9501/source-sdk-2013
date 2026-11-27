@@ -37,6 +37,10 @@
 #include "bot/map_entities/tf_bot_generator.h"
 #include "bot/map_entities/tf_bot_hint_entity.h"
 #include "bot/features/tf_bot_features.h"	// TFBot overhaul
+#include "bot/profile/tf_bot_profile.h"		// TFBot overhaul
+#include "bot/aim/tf_bot_aim.h"				// TFBot overhaul
+#include "bot/blackboard/tf_bot_blackboard.h"	// TFBot overhaul
+#include "bot/unlocks/tf_bot_unlocks.h"		// TFBot overhaul
 
 ConVar tf_bot_force_class( "tf_bot_force_class", "", FCVAR_GAMEDLL, "If set to a class name, all TFBots will respawn as that class" );
 
@@ -1190,6 +1194,14 @@ const char *CTFBot::GetNextSpawnClassname( void ) const
 		iNextClass = (ETFClass)GetClassIndexFromString( pszForceClass );
 	}
 
+	// TFBot overhaul: profile preferences weighted by team needs
+	if ( iNextClass == TF_CLASS_UNDEFINED )
+	{
+		const char *pszProfileClass = TFBotProfiles::ChooseClass( const_cast< CTFBot * >( this ) );
+		if ( pszProfileClass )
+			return pszProfileClass;
+	}
+
 	if ( iNextClass == TF_CLASS_UNDEFINED && tf_bot_spawn_use_preset_roster.GetBool() && ( !TFGameRules() || !TFGameRules()->IsInTraining() ))
 	{
 		iNextClass = GetPresetClassToSpawn();
@@ -1334,6 +1346,8 @@ void CTFBot::Spawn()
 	BaseClass::Spawn();
 
 	TFBotFeatures::OnBotSpawn( this );	// TFBot overhaul: snapshot this team's feature set
+	TFBotProfiles::OnBotSpawn( this );	// TFBot overhaul: assign/keep this bot's profile
+	TFBotUnlocks::ApplyLoadout( this );	// TFBot overhaul (M6): whitelisted unlocks from the profile
 
 	m_spawnArea = NULL;
 	m_justLostPointTimer.Invalidate();
@@ -2832,6 +2846,10 @@ public:
 // Update our view to watch where members of the given team will be coming from
 void CTFBot::UpdateLookingAroundForIncomingPlayers( bool lookForEnemies )
 {
+	// TFBot overhaul (M2): hold likely approaches at head height
+	if ( TFBotAim::UpdatePreAim( this, lookForEnemies ) )
+		return;
+
 	if ( !m_lookAtEnemyInvasionAreasTimer.IsElapsed() )
 		return;
 
@@ -3880,6 +3898,9 @@ void CTFBot::RealizeSpy( CTFPlayer *pPlayer )
 
 	// add to head for LRU effect
 	m_knownSpyVector.AddToHead( pPlayer );
+
+	// TFBot overhaul (M3): post to the team blackboard; teammates in earshot learn it
+	TFBotBlackboard::OnBotRealizedSpy( this, pPlayer );
 
 	// inform my teammates
 	SpeakConceptIfAllowed( MP_CONCEPT_PLAYER_CLOAKEDSPY );

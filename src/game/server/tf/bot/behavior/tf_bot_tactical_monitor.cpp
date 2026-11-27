@@ -34,6 +34,7 @@
 
 #include "tf_obj_sentrygun.h"
 #include "tf_item_system.h"
+#include "bot/profile/tf_bot_profile.h"	// TFBot overhaul
 
 extern ConVar tf_bot_health_ok_ratio;
 extern ConVar tf_bot_health_critical_ratio;
@@ -299,7 +300,10 @@ ActionResult< CTFBot >	CTFBotTacticalMonitor::Update( CTFBot *me, float interval
 		if ( me->IsInCombat() || me->IsPlayerClass( TF_CLASS_SNIPER ) )
 		{
 			// stay in the fight until we're nearly dead
-			isHurt = ( (float)me->GetHealth() / (float)me->GetMaxHealth() ) < tf_bot_health_critical_ratio.GetFloat();
+			// TFBot overhaul: a profiled bot falls back at its own threshold
+			const TFBotProfile_t *profile = TFBotProfiles::Get( me );
+			float critical = profile ? profile->Get( TFBOT_PROFILE_RETREAT_HEALTH ) : tf_bot_health_critical_ratio.GetFloat();
+			isHurt = ( (float)me->GetHealth() / (float)me->GetMaxHealth() ) < critical;
 		}
 		else
 		{

@@ -13,6 +13,7 @@
 #include "bot/behavior/scenario/capture_point/tf_bot_capture_point.h"
 #include "bot/behavior/scenario/capture_point/tf_bot_defend_point.h"
 #include "bot/behavior/tf_bot_seek_and_destroy.h"
+#include "bot/blackboard/tf_bot_blackboard.h"	// TFBot overhaul
 
 
 extern ConVar tf_bot_path_lookahead_range;
@@ -137,6 +138,12 @@ ActionResult< CTFBot >	CTFBotCapturePoint::Update( CTFBot *me, float interval )
 
 				return Continue();
 			}
+		}
+
+		// TFBot overhaul (M3): wait for the team while it regroups / waits for uber
+		if ( !isPushingToCapture && TFBotBlackboard::ShouldHoldAdvance( me, point->GetAbsOrigin() ) )
+		{
+			return Continue();
 		}
 
 		// move towards next capture point

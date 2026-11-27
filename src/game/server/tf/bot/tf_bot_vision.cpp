@@ -11,6 +11,7 @@
 #include "tf_player.h"
 #include "tf_gamerules.h"
 #include "tf_obj_sentrygun.h"
+#include "bot/profile/tf_bot_profile.h"	// TFBot overhaul
 
 ConVar tf_bot_choose_target_interval( "tf_bot_choose_target_interval", "0.3f", FCVAR_CHEAT, "How often, in seconds, a TFBot can reselect his target" );
 ConVar tf_bot_sniper_choose_target_interval( "tf_bot_sniper_choose_target_interval", "3.0f", FCVAR_CHEAT, "How often, in seconds, a zoomed-in Sniper can reselect his target" );
@@ -439,6 +440,12 @@ bool CTFBotVision::IsVisibleEntityNoticed( CBaseEntity *subject ) const
 float CTFBotVision::GetMinRecognizeTime( void ) const
 {
 	CTFBot *me = (CTFBot *)GetBot();
+
+	// TFBot overhaul: per-bot reaction time from its profile
+	if ( const TFBotProfile_t *profile = TFBotProfiles::Get( me ) )
+	{
+		return profile->Get( TFBOT_PROFILE_REACTION_TIME );
+	}
 
 	switch ( me->GetDifficulty() )
 	{

@@ -22,6 +22,16 @@ class CTFBot;
 enum ETFBotFeature
 {
 	TFBOT_FEATURE_TEST_NOOP = 0,	// M0 plumbing check, changes no behaviour
+	TFBOT_FEATURE_PROFILES,			// M1 per-bot skill/style profiles, team-needs class choice
+	TFBOT_FEATURE_AIM,				// M2 human-like aim model, real projectile leading, pre-aim
+	TFBOT_FEATURE_BLACKBOARD,		// M3 shared team knowledge, group up / wait for uber, focus fire, medics answer bots
+	TFBOT_FEATURE_VOICE,			// M3 bots make voice callouts
+	TFBOT_FEATURE_PERCEPTION,		// M3 hearing footsteps (approximate), glancing around
+	TFBOT_FEATURE_MEDIC,			// M3 medic fixes (IsGoodUberTarget)
+	TFBOT_FEATURE_ENGINEER,			// M3b engineer styles, carrying buildings, helping teammates' buildings
+	TFBOT_FEATURE_MOVEMENT,			// M4 sustained strafing, combat jumps, scout double jumps, medic strafing
+	TFBOT_FEATURE_UNLOCKS,			// M6 whitelisted unlocks from profile loadouts (Direct Hit, Kritzkrieg, Gunslinger)
+	TFBOT_FEATURE_MOBILITY,			// M7 rocket / sticky jumps as path links
 
 	TFBOT_FEATURE_COUNT
 };
@@ -49,6 +59,12 @@ namespace TFBotFeatures
 	// Wall-clock cost per feature, accumulated through CTFBotFeatureCostScope.
 	void AddCost( ETFBotFeature feature, double seconds );
 	double GetCost( ETFBotFeature feature );
+
+	// Named activity counters ("blast_jump", "building_pickup", ...) so A/B
+	// runs show each behaviour actually fires. Name must be a string literal.
+	void CountEvent( const char *name );
+	int GetEventCount( int index, const char **name );	// index from 0; returns -1 past the end
+	void ResetEventCounts();
 }
 
 // Times a block of feature code: TFBOT_FEATURE_COST_SCOPE( TFBOT_FEATURE_X );
