@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """A/B harness for the TFBot overhaul.
 
-  ab.py run    --maps valve6 --a stock --b default --rounds 10 --instances 4
-  ab.py report tfbot_runs/<run> [--write docs/tfbot/results/M0.md]
+  ab.py run     --maps valve6 --a stock --b default --rounds 10 --instances 4
+  ab.py report  tfbot_runs/<run> [--write docs/tfbot/results/M0.md]
+  ab.py compare tfbot_runs/<run1> tfbot_runs/<run2>   (e.g. timescale check)
 
 `run` plays every map in both directions (A on RED / B on BLU, then swapped),
 `--rounds` rounds each, on headless srcds instances in parallel. Each server
@@ -38,6 +39,12 @@ MAP_SETS = {
     "navless4": ["koth_harvest_final", "cp_steel", "plr_hightower", "ctf_doublecross"],
 }
 
+# Per-map convar overrides for maps whose rounds run too long with bots
+# (design doc §3.8 / M0 Q59). Always listed in run.json and in reports so
+# results stay comparable between milestones. Extend with --override.
+MAP_OVERRIDES = {
+}
+
 
 # --------------------------------------------------------------------------- run
 
@@ -51,7 +58,21 @@ def expand_maps(specs):
     return list(dict.fromkeys(maps))
 
 
+def map_overrides(args):
+    """MAP_OVERRIDES plus --override MAP:CVAR=VALUE entries."""
+    out = {m: dict(cvars) for m, cvars in MAP_OVERRIDES.items()}
+    for spec in args.override or []:
+        try:
+            m, rest = spec.split(":", 1)
+            cvar, value = rest.split("=", 1)
+        except ValueError:
+            sys.exit(f"bad --override '{spec}', expected MAP:CVAR=VALUE")
+        out.setdefault(m, {})[cvar] = value
+    return out
+
+
 def build_jobs(args, run_id):
+    overrides = map_overrides(args)
     jobs = []
     for m in expand_maps(args.maps):
         for a_team in ("red", "blu"):
@@ -62,6 +83,7 @@ def build_jobs(args, run_id):
                 "a_team": a_team,
                 "red": red,
                 "blu": blu,
+                "overrides": overrides.get(m, {}),
                 "metrics_run_id": f"{run_id}/{m}__a_{a_team}",
             })
     return jobs
@@ -92,8 +114,10 @@ def server_command(args, job, port, view, lib):
         "+tf_bot_metrics", "1",
         "+tf_bot_metrics_run_id", job["metrics_run_id"],
         "+tf_bot_ab_rounds", str(args.rounds),
-        "+map", job["map"],
     ]
+    for cvar, value in job.get("overrides", {}).items():
+        cmd += [f"+{cvar}", str(value)]
+    cmd += ["+map", job["map"]]
     return cmd, env
 
 
@@ -282,6 +306,10 @@ def cmd_report(args):
                  f"difficulty {manifest['difficulty']}, {manifest['bots']} bots, "
                  f"{manifest['instances']} parallel servers")
     lines.append(f"- Started {manifest['started']}, finished {manifest.get('finished', '?')}")
+    overrides = {j["map"]: j["overrides"] for j in manifest["jobs"] if j.get("overrides")}
+    if overrides:
+        lines.append("- **Per-map overrides:** " + "; ".join(
+            f"{m}: " + ", ".join(f"`{k} {v}`" for k, v in cv.items()) for m, cv in sorted(overrides.items())))
     bad = [j for j in manifest["jobs"] if j["timed_out"] or not j.get("metrics_files")]
     if bad:
         lines.append(f"- **Jobs with problems:** " + ", ".join(
@@ -346,6 +374,89 @@ def cmd_report(args):
         print(f"\nwritten to {out}", file=sys.stderr)
 
 
+# ----------------------------------------------------------------------- compare
+
+def round_rates(rec):
+    """Per-round rates for both teams combined, per game minute."""
+    minutes = max(rec["duration"], 1.0) / 60.0
+    t = rec["teams"]
+    both = lambda k: t["red"][k] + t["blu"][k]
+    shots = both("hitscan_shots")
+    return {
+        "round_seconds": rec["duration"],
+        "kills_per_min": both("kills") / minutes,
+        "damage_per_min": both("damage") / minutes,
+        "objective_s_per_min": both("objective_seconds") / minutes,
+        "stuck_s_per_min": both("stuck_seconds") / minutes,
+        "hitscan_accuracy": (both("hitscan_hits") / shots) if shots else None,
+    }
+
+
+RATE_KEYS = ["round_seconds", "kills_per_min", "damage_per_min", "objective_s_per_min",
+             "stuck_s_per_min", "hitscan_accuracy"]
+
+
+def intervals_overlap(lo1, hi1, lo2, hi2):
+    if any(math.isnan(x) for x in (lo1, hi1, lo2, hi2)):
+        return False
+    return lo1 <= hi2 and lo2 <= hi1
+
+
+def mean_ci(values):
+    values = [v for v in values if v is not None]
+    n = len(values)
+    if n == 0:
+        return (float("nan"), float("nan"), float("nan"), 0)
+    m = sum(values) / n
+    if n < 2:
+        return (m, float("nan"), float("nan"), n)
+    sd = math.sqrt(sum((v - m) ** 2 for v in values) / (n - 1))
+    half = 1.96 * sd / math.sqrt(n)
+    return (m, m - half, m + half, n)
+
+
+def cmd_compare(args):
+    runs = []
+    for d in (args.run_a, args.run_b):
+        manifest, rounds, _ = load_run(os.path.abspath(d))
+        runs.append((manifest, [(job["map"], round_rates(rec)) for job, rec in rounds if counted(rec)]))
+
+    (man_a, rounds_a), (man_b, rounds_b) = runs
+    maps = sorted({m for m, _ in rounds_a} | {m for m, _ in rounds_b})
+
+    lines = [f"# Compare `{man_a['run_id']}` (timescale {man_a['timescale']}) vs "
+             f"`{man_b['run_id']}` (timescale {man_b['timescale']})", ""]
+    lines.append(f"Same if the means are within ±{100 * args.tolerance:.0f}% and the 95% intervals overlap. "
+                 "Stuck time is reported but not judged (too rare for a stable rate).")
+    all_same = True
+    for scope in maps + ["all maps"]:
+        sel_a = [r for m, r in rounds_a if scope in ("all maps", m)]
+        sel_b = [r for m, r in rounds_b if scope in ("all maps", m)]
+        lines += ["", f"## {scope} (n = {len(sel_a)} vs {len(sel_b)} rounds)", "",
+                  "| metric | A | B | B/A | verdict |", "|---|---|---|---|---|"]
+        for k in RATE_KEYS:
+            ma, la, ha, _ = mean_ci([r[k] for r in sel_a])
+            mb, lb, hb, _ = mean_ci([r[k] for r in sel_b])
+            ratio = mb / ma if ma else float("nan")
+            same = abs(ratio - 1) <= args.tolerance and intervals_overlap(la, ha, lb, hb)
+            judged = k != "stuck_s_per_min"
+            verdict = ("same" if same else "**differs**") if judged else "(not judged)"
+            if judged and not same and scope == "all maps":
+                all_same = False
+            lines.append(f"| {k} | {ma:.3f} [{la:.3f}–{ha:.3f}] | {mb:.3f} [{lb:.3f}–{hb:.3f}] "
+                         f"| {ratio:.2f} | {verdict} |")
+    lines += ["", f"**Overall (all maps): {'same within tolerance' if all_same else 'DIFFERS'}**"]
+
+    text = "\n".join(lines)
+    print(text)
+    if args.write:
+        out = os.path.abspath(args.write)
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with open(out, "w") as f:
+            f.write(text + "\n")
+        print(f"\nwritten to {out}", file=sys.stderr)
+
+
 # -------------------------------------------------------------------------- main
 
 def main():
@@ -364,6 +475,8 @@ def main():
     run.add_argument("--bots", type=int, default=24, help="total bots / maxplayers (default 24, i.e. 12v12)")
     run.add_argument("--round-timeout-min", type=float, default=30.0,
                      help="wall-clock budget per round in game minutes before a job is killed (default 30)")
+    run.add_argument("--override", action="append",
+                     help="per-map convar override MAP:CVAR=VALUE (repeatable; recorded in the report)")
     run.add_argument("--label", help="run id (default: timestamp)")
     run.add_argument("--base-port", type=int, default=27100)
     run.add_argument("--srcds", default=os.path.expanduser("~/srcds/sdk2013"))
@@ -374,6 +487,13 @@ def main():
     rep.add_argument("run_dir")
     rep.add_argument("--write", help="also write the markdown to this file")
     rep.set_defaults(func=cmd_report)
+
+    cmp_ = sub.add_parser("compare", help="compare per-game-minute rates of two runs (e.g. timescale check)")
+    cmp_.add_argument("run_a")
+    cmp_.add_argument("run_b")
+    cmp_.add_argument("--tolerance", type=float, default=0.10, help="allowed relative difference (default 0.10)")
+    cmp_.add_argument("--write", help="also write the markdown to this file")
+    cmp_.set_defaults(func=cmd_compare)
 
     args = ap.parse_args()
     args.func(args)
