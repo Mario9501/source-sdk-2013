@@ -659,6 +659,13 @@ const char *TFBotProfiles::ChooseClass( CTFBot *bot )
 	bool facingSentry = bot->GetEnemySentry() != NULL;
 	int currentClass = bot->GetPlayerClass()->GetClassIndex();
 
+	// An engineer with buildings standing keeps them (switching destroys them).
+	if ( currentClass == TF_CLASS_ENGINEER && bot->GetObjectCount() > 0 )
+	{
+		TFPlayerClassData_t *data = GetPlayerClassData( currentClass );
+		return data ? data->m_szClassName : NULL;
+	}
+
 	float weight[ TF_CLASS_COUNT_ALL ] = { 0.0f };
 	float total = 0.0f;
 	for ( int c = TF_FIRST_NORMAL_CLASS; c < TF_LAST_NORMAL_CLASS; ++c )
@@ -691,7 +698,7 @@ const char *TFBotProfiles::ChooseClass( CTFBot *bot )
 
 		// People mostly keep their class between lives.
 		if ( c == currentClass )
-			w *= 2.0f;
+			w *= 6.0f;
 
 		weight[c] = w;
 		total += w;

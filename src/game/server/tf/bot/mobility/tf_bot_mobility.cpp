@@ -36,6 +36,7 @@ struct TFBotBlastState_t
 	float m_started;
 	Vector m_goal;
 	Vector m_forward;
+	float m_cooldownUntil;		// after a failed attempt, plan with a normal jump for a while
 };
 
 static TFBotBlastState_t s_blast[ MAX_PLAYERS + 1 ];
@@ -84,6 +85,9 @@ static bool IsCapable( const CTFBot *bot )
 	CTFBot *me = const_cast< CTFBot * >( bot );	// IsAlive/GetMaxHealth aren't const
 	if ( !TFBotMobility::IsActive( bot ) || !me->IsAlive() )
 		return false;
+	const TFBotBlastState_t *st = StateFor( bot );
+	if ( st && gpGlobals->curtime < st->m_cooldownUntil )
+		return false;	// just failed one: the next repath should take another way
 	if ( (float)me->GetHealth() < tf_bot_blast_jump_min_health.GetFloat() * me->GetMaxHealth() )
 		return false;
 	return BlastWeapon( bot ) != NULL;
@@ -129,7 +133,10 @@ bool TFBotMobility::HandleClimb( CTFBot *bot, const Vector &landingGoal, const V
 static void Abort( TFBotBlastState_t *st )
 {
 	if ( st->m_phase != BLAST_AIRBORNE )
+	{
 		TFBotFeatures::CountEvent( "blast_jump_abort" );
+		st->m_cooldownUntil = gpGlobals->curtime + 10.0f;
+	}
 	st->m_phase = BLAST_NONE;
 }
 
