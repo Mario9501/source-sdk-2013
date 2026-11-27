@@ -157,10 +157,35 @@ def run_job(args, job, port, view, lib, run_dir, print_lock):
     return result
 
 
+def snapshot_view(shared_view, run_dir):
+    """Per-run copy of the server view with its own copy of the binaries.
+
+    Rebuilding the mod during a run then can't swap code under live servers
+    or mix two builds in one A/B run. Non-binary entries stay symlinks.
+    """
+    view = os.path.join(run_dir, "view")
+    os.makedirs(os.path.join(view, "bin", "linux64"))
+    for entry in os.listdir(shared_view):
+        src = os.path.join(shared_view, entry)
+        if entry == "bin":
+            continue
+        if entry == "gameinfo.txt":
+            shutil.copy2(src, os.path.join(view, entry))
+        elif os.path.islink(src):
+            os.symlink(os.readlink(src), os.path.join(view, entry))
+    bin_src = os.path.join(shared_view, "bin", "linux64")
+    for f in os.listdir(bin_src):
+        if f == "server_srv.so":
+            continue
+        shutil.copy2(os.path.realpath(os.path.join(bin_src, f)), os.path.join(view, "bin", "linux64", f))
+    os.symlink("server.so", os.path.join(view, "bin", "linux64", "server_srv.so"))
+    return view
+
+
 def cmd_run(args):
-    view = os.path.join(args.views, "mod_tf")
+    shared_view = os.path.join(args.views, "mod_tf")
     lib = os.path.join(args.views, "lib")
-    for path in (view, lib, os.path.join(args.srcds, "srcds_linux64")):
+    for path in (shared_view, lib, os.path.join(args.srcds, "srcds_linux64")):
         if not os.path.exists(path):
             sys.exit(f"missing {path}: run tools/tfbot/ds_setup.py first")
 
@@ -169,10 +194,14 @@ def cmd_run(args):
     if os.path.exists(run_dir):
         sys.exit(f"run directory already exists: {run_dir}")
     os.makedirs(run_dir)
+    view = snapshot_view(shared_view, run_dir)
+    git_rev = subprocess.run(["git", "-C", REPO, "describe", "--always", "--dirty"],
+                             capture_output=True, text=True).stdout.strip()
 
     jobs = build_jobs(args, run_id)
     manifest = {
         "run_id": run_id,
+        "git": git_rev,
         "started": datetime.datetime.now().isoformat(timespec="seconds"),
         "a": args.a, "b": args.b, "rounds_per_job": args.rounds,
         "timescale": args.timescale, "difficulty": args.difficulty, "bots": args.bots,
@@ -197,6 +226,9 @@ def cmd_run(args):
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.instances) as pool:
         results = list(pool.map(worker, jobs))
+
+    # The binaries are big; keep only the metrics.
+    shutil.rmtree(os.path.join(view, "bin"), ignore_errors=True)
 
     manifest["jobs"] = results
     manifest["finished"] = datetime.datetime.now().isoformat(timespec="seconds")
@@ -305,7 +337,8 @@ def cmd_report(args):
     lines.append(f"- {manifest['rounds_per_job']} rounds per map per side, timescale {manifest['timescale']}, "
                  f"difficulty {manifest['difficulty']}, {manifest['bots']} bots, "
                  f"{manifest['instances']} parallel servers")
-    lines.append(f"- Started {manifest['started']}, finished {manifest.get('finished', '?')}")
+    lines.append(f"- Started {manifest['started']}, finished {manifest.get('finished', '?')}, "
+                 f"build `{manifest.get('git', '?')}`")
     overrides = {j["map"]: j["overrides"] for j in manifest["jobs"] if j.get("overrides")}
     if overrides:
         lines.append("- **Per-map overrides:** " + "; ".join(
