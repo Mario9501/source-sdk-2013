@@ -1,0 +1,4 @@
+# Engine/game output (config.cfg, tf_bot_records.txt from playstyle recording, ...) - not tracked
+*
+!.gitignore
+!tfbot_playtest.cfg

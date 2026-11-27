@@ -176,6 +176,9 @@ def snapshot_view(shared_view, run_dir, server_override=None):
             continue
         if entry == "gameinfo.txt":
             shutil.copy2(src, os.path.join(view, entry))
+        elif entry == "cfg":
+            # a real copy: per-job cfgs are written here and must not land in the repo
+            shutil.copytree(os.path.realpath(src), os.path.join(view, entry))
         elif os.path.islink(src):
             os.symlink(os.readlink(src), os.path.join(view, entry))
     bin_src = os.path.join(shared_view, "bin", "linux64")
