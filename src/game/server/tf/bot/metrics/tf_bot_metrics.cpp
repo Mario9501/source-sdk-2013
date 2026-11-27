@@ -29,6 +29,7 @@
 #include "bot/clone/tf_bot_clone.h"
 #include "nav_mesh/autogen/tf_nav_autogen.h"
 #include "nav_mesh.h"
+#include "team_objectiveresource.h"
 #include <time.h>
 
 // memdbgon must be the last include file in a .cpp file!!!
@@ -38,6 +39,7 @@ ConVar tf_bot_metrics( "tf_bot_metrics", "0", FCVAR_NONE, "Write TFBot overhaul 
 ConVar tf_bot_metrics_dir( "tf_bot_metrics_dir", "tfbot_metrics", FCVAR_NONE, "Folder (MOD search path) that receives metrics files." );
 ConVar tf_bot_metrics_run_id( "tf_bot_metrics_run_id", "manual", FCVAR_NONE, "Run identifier: subfolder under tf_bot_metrics_dir, also written into match_start." );
 ConVar tf_bot_ab_rounds( "tf_bot_ab_rounds", "0", FCVAR_NONE, "If > 0, write metrics and quit the server after this many rounds have ended (A/B harness)." );
+ConVar tf_bot_ab_round_minutes( "tf_bot_ab_round_minutes", "0", FCVAR_NONE, "A/B harness, per-map override: end a round after this many game minutes; the team holding more control points wins, a tie is a stalemate (0 = off). Only with tf_bot_metrics 1." );
 
 
 //-----------------------------------------------------------------------------
@@ -289,6 +291,7 @@ private:
 	void WriteTeamFeatures( CTFBotJsonLine &line, int team );
 
 	void SampleSecond( float dt );
+	void CapRoundLength();
 	void UpdateStuck( int index, CTFBot *bot, bool stuck );
 	void EndStuck( int index, const char *how );
 	void EndAllStuck( const char *how );
@@ -300,6 +303,7 @@ private:
 	FileHandle_t m_file;
 	bool m_listening;
 	bool m_quitting;
+	bool m_roundCapped;			// tf_bot_ab_round_minutes already ended this round
 	char m_path[ MAX_PATH ];
 
 	int m_round;				// rounds started
@@ -663,6 +667,8 @@ void CTFBotMetrics::FrameUpdatePostEntityThink()
 	if ( !IsRoundRunning() )
 		return;
 
+	CapRoundLength();
+
 	if ( gpGlobals->curtime >= m_nextSample )
 	{
 		float dt = gpGlobals->curtime - m_lastSample;
@@ -672,6 +678,37 @@ void CTFBotMetrics::FrameUpdatePostEntityThink()
 		m_lastSample = gpGlobals->curtime;
 		m_nextSample = gpGlobals->curtime + 1.0f;
 	}
+}
+
+
+//-----------------------------------------------------------------------------
+// Per-map A/B override for maps whose bot rounds never end (5CP trading points
+// keeps adding round time): after N game minutes the team holding more control
+// points wins; a tie is a stalemate.
+//-----------------------------------------------------------------------------
+void CTFBotMetrics::CapRoundLength()
+{
+	float minutes = tf_bot_ab_round_minutes.GetFloat();
+	if ( minutes <= 0.0f || m_roundCapped || gpGlobals->curtime - m_roundStart < minutes * 60.0f )
+		return;
+	m_roundCapped = true;
+
+	int held[ SLOT_COUNT ] = { 0, 0 };
+	CBaseTeamObjectiveResource *objectives = ObjectiveResource();
+	for ( int i = 0; objectives && i < objectives->GetNumControlPoints(); ++i )
+	{
+		int slot = TeamSlot( objectives->GetOwningTeam( i ) );
+		if ( slot >= 0 )
+			++held[ slot ];
+	}
+
+	Msg( "TFBot metrics: round passed %.0f game minutes (tf_bot_ab_round_minutes), points RED %d / BLU %d\n", minutes, held[ SLOT_RED ], held[ SLOT_BLU ] );
+	if ( held[ SLOT_RED ] > held[ SLOT_BLU ] )
+		TFGameRules()->SetWinningTeam( TF_TEAM_RED, WINREASON_TIMELIMIT );
+	else if ( held[ SLOT_BLU ] > held[ SLOT_RED ] )
+		TFGameRules()->SetWinningTeam( TF_TEAM_BLUE, WINREASON_TIMELIMIT );
+	else
+		TFGameRules()->SetStalemate( STALEMATE_TIMER );
 }
 
 
@@ -899,6 +936,7 @@ void CTFBotMetrics::FireGameEvent( IGameEvent *event )
 	{
 		++m_round;
 		m_roundStart = gpGlobals->curtime;
+		m_roundCapped = false;
 		m_lastSample = gpGlobals->curtime;
 		m_nextSample = gpGlobals->curtime + 1.0f;
 		for ( int s = 0; s < SLOT_COUNT; ++s )

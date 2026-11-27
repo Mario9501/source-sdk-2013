@@ -43,6 +43,9 @@ MAP_SETS = {
 # (design doc §3.8 / M0 Q59). Always listed in run.json and in reports so
 # results stay comparable between milestones. Extend with --override.
 MAP_OVERRIDES = {
+    # 5CP bot rounds trade points for 20-90 game minutes (each capture adds
+    # round time): end at 20 minutes, team holding more points wins.
+    "cp_process_final": {"tf_bot_ab_round_minutes": "20"},
 }
 
 
