@@ -14,16 +14,17 @@
 #include "tf_obj_sentrygun.h"
 #include "tf_weapon_builder.h"
 #include "tf_gamerules.h"
+#include "team_train_watcher.h"
 #include "nav_mesh/tf_nav_mesh.h"
 #include "nav_mesh/tf_nav_area.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
-ConVar tf_bot_engineer_forward_offset( "tf_bot_engineer_forward_offset", "400", FCVAR_CHEAT,
-	"Forward-style engineers nest this far (incursion distance) behind the team's front (M3b)" );
-ConVar tf_bot_engineer_advance_gap( "tf_bot_engineer_advance_gap", "1300", FCVAR_CHEAT,
-	"Forward-style engineers move the nest up once the team front is this far ahead of it (M3b)" );
+ConVar tf_bot_engineer_forward_offset( "tf_bot_engineer_forward_offset", "200", FCVAR_CHEAT,
+	"Forward-style engineers nest at least this far (incursion distance) behind the team's main group (M3b)" );
+ConVar tf_bot_engineer_advance_gap( "tf_bot_engineer_advance_gap", "600", FCVAR_CHEAT,
+	"Payload: forward-style engineers move the nest once the cart is this far past it (M3b)" );
 ConVar tf_bot_engineer_help_range( "tf_bot_engineer_help_range", "900", FCVAR_CHEAT,
 	"How far an engineer goes to help a teammate's building (M3b)" );
 
@@ -79,34 +80,88 @@ bool TFBotEngineer::ShouldFight( CTFBot *me, CObjectSentrygun *sentry )
 
 
 //-----------------------------------------------------------------------------
-// The furthest-forward living teammate's incursion distance (from our spawn).
+// Where the team's main group is: the incursion distance (from our spawn) of
+// the teammate a third of the way back from the most advanced one, so one
+// scout deep in enemy territory doesn't drag the nest forward. Spies, snipers
+// and engineers don't count. -1 if fewer than two teammates are out.
 //-----------------------------------------------------------------------------
+struct TFBotFrontMate_t
+{
+	float m_incursion;
+	Vector m_pos;
+};
+
+static int CompareFrontMates( const TFBotFrontMate_t *a, const TFBotFrontMate_t *b )
+{
+	return ( a->m_incursion > b->m_incursion ) ? -1 : ( a->m_incursion < b->m_incursion ) ? 1 : 0;
+}
+
 static float TeamFrontIncursion( CTFBot *me, Vector *frontPos )
 {
 	int team = me->GetTeamNumber();
-	float front = -1.0f;
+	CUtlVector< TFBotFrontMate_t > mates;
 	for ( int i = 1; i <= gpGlobals->maxClients; ++i )
 	{
 		CTFPlayer *mate = ToTFPlayer( UTIL_PlayerByIndex( i ) );
-		if ( !mate || mate == me || !mate->IsAlive() || mate->GetTeamNumber() != team || mate->IsPlayerClass( TF_CLASS_SPY ) )
+		if ( !mate || mate == me || !mate->IsAlive() || mate->GetTeamNumber() != team )
+			continue;
+		if ( mate->IsPlayerClass( TF_CLASS_SPY ) || mate->IsPlayerClass( TF_CLASS_SNIPER ) || mate->IsPlayerClass( TF_CLASS_ENGINEER ) )
 			continue;
 		CTFNavArea *area = static_cast< CTFNavArea * >( mate->GetLastKnownArea() );
-		if ( !area )
+		if ( !area || area->HasAttributeTF( TF_NAV_SPAWN_ROOM_RED | TF_NAV_SPAWN_ROOM_BLUE ) )
 			continue;
 		float incursion = area->GetIncursionDistance( team );
-		if ( incursion > front )
-		{
-			front = incursion;
-			if ( frontPos )
-				*frontPos = mate->GetAbsOrigin();
-		}
+		if ( incursion < 0.0f )
+			continue;
+		TFBotFrontMate_t entry = { incursion, mate->GetAbsOrigin() };
+		mates.AddToTail( entry );
 	}
-	return front;
+	if ( mates.Count() < 2 )
+		return -1.0f;
+
+	mates.Sort( CompareFrontMates );
+	const TFBotFrontMate_t &front = mates[ mates.Count() / 3 ];
+	if ( frontPos )
+		*frontPos = front.m_pos;
+	return front.m_incursion;
 }
 
 
 //-----------------------------------------------------------------------------
-bool TFBotEngineer::PickNestLocation( CTFBot *me, Vector *location )
+static int s_sortTeam = TF_TEAM_RED;
+
+static int CompareAreasMostAdvanced( CTFNavArea * const *a, CTFNavArea * const *b )
+{
+	float ia = (*a)->GetIncursionDistance( s_sortTeam );
+	float ib = (*b)->GetIncursionDistance( s_sortTeam );
+	return ( ia > ib ) ? -1 : ( ia < ib ) ? 1 : 0;
+}
+
+static bool PickWeightedBySize( const CUtlVector< CTFNavArea * > &areas, int count, Vector *location )
+{
+	float totalWeight = 0.0f;
+	for ( int i = 0; i < count; ++i )
+		totalWeight += areas[i]->GetSizeX() * areas[i]->GetSizeY();
+	if ( count <= 0 || totalWeight <= 0.0f )
+		return false;
+
+	float pick = RandomFloat( 0.0f, totalWeight );
+	for ( int i = 0; i < count; ++i )
+	{
+		pick -= areas[i]->GetSizeX() * areas[i]->GetSizeY();
+		if ( pick <= 0.0f )
+		{
+			*location = areas[i]->GetRandomPoint();
+			return true;
+		}
+	}
+	*location = areas[ count - 1 ]->GetRandomPoint();
+	return true;
+}
+
+
+//-----------------------------------------------------------------------------
+bool TFBotEngineer::PickNestLocation( CTFBot *me, const CUtlVector< CTFNavArea * > &objectiveAreas, Vector *location )
 {
 	if ( !IsActive( me ) || !NestsForward( me ) )
 		return false;
@@ -114,47 +169,55 @@ bool TFBotEngineer::PickNestLocation( CTFBot *me, Vector *location )
 	Vector frontPos;
 	float front = TeamFrontIncursion( me, &frontPos );
 	if ( front < 0.0f )
-		return false;
+		return false;		// the team isn't out yet: stock choice
 
-	// Battle engineers drop minis right at the fight.
 	const int team = me->GetTeamNumber();
-	const float offset = ( GetStyle( me ) == TFBOT_ENGINEER_BATTLE ) ? 150.0f : tf_bot_engineer_forward_offset.GetFloat();
-	const float target = front - offset;
-	const float window = 250.0f;
 
-	// Areas just behind the front, near the front player, with room to build.
-	CUtlVector< CTFNavArea * > candidates;
-	float totalWeight = 0.0f;
-	for ( int i = 0; i < TheNavAreas.Count(); ++i )
+	if ( GetStyle( me ) == TFBOT_ENGINEER_BATTLE )
 	{
-		CTFNavArea *area = static_cast< CTFNavArea * >( TheNavAreas[i] );
-		float incursion = area->GetIncursionDistance( team );
-		if ( incursion < 0.0f || fabsf( incursion - target ) > window )
-			continue;
-		if ( area->GetSizeX() < 50.0f || area->GetSizeY() < 50.0f )
-			continue;
-		if ( area->HasAttributeTF( TF_NAV_SPAWN_ROOM_RED | TF_NAV_SPAWN_ROOM_BLUE ) )
-			continue;
-		if ( ( area->GetCenter() - frontPos ).IsLengthGreaterThan( 1500.0f ) )
-			continue;
-		candidates.AddToTail( area );
-		totalWeight += area->GetSizeX() * area->GetSizeY();
-	}
-	if ( candidates.Count() == 0 )
-		return false;
-
-	float pick = RandomFloat( 0.0f, totalWeight );
-	FOR_EACH_VEC( candidates, c )
-	{
-		pick -= candidates[c]->GetSizeX() * candidates[c]->GetSizeY();
-		if ( pick <= 0.0f )
+		// Battle engineers drop minis at the fight, just behind the main group.
+		const float target = front - 150.0f;
+		const float window = 250.0f;
+		CUtlVector< CTFNavArea * > candidates;
+		for ( int i = 0; i < TheNavAreas.Count(); ++i )
 		{
-			*location = candidates[c]->GetRandomPoint();
-			TFBotFeatures::CountEvent( "eng_forward_nest" );
-			return true;
+			CTFNavArea *area = static_cast< CTFNavArea * >( TheNavAreas[i] );
+			float incursion = area->GetIncursionDistance( team );
+			if ( incursion < 0.0f || fabsf( incursion - target ) > window )
+				continue;
+			if ( area->GetSizeX() < 50.0f || area->GetSizeY() < 50.0f )
+				continue;
+			if ( area->HasAttributeTF( TF_NAV_SPAWN_ROOM_RED | TF_NAV_SPAWN_ROOM_BLUE ) )
+				continue;
+			if ( ( area->GetCenter() - frontPos ).IsLengthGreaterThan( 1500.0f ) )
+				continue;
+			candidates.AddToTail( area );
 		}
+		if ( !PickWeightedBySize( candidates, candidates.Count(), location ) )
+			return false;
+		TFBotFeatures::CountEvent( "eng_battle_nest" );
+		return true;
 	}
-	*location = candidates.Tail()->GetRandomPoint();
+
+	// Forward engineers still cover the objective: of the areas the stock
+	// logic found (they see the point with a clear line of fire), take the
+	// most advanced half of those behind the team's main group.
+	CUtlVector< CTFNavArea * > behind;
+	const float limit = front - tf_bot_engineer_forward_offset.GetFloat();
+	FOR_EACH_VEC( objectiveAreas, i )
+	{
+		float incursion = objectiveAreas[i]->GetIncursionDistance( team );
+		if ( incursion >= 0.0f && incursion <= limit )
+			behind.AddToTail( objectiveAreas[i] );
+	}
+	if ( behind.Count() == 0 )
+		return false;		// the team hasn't reached the objective: stock choice
+
+	s_sortTeam = team;
+	behind.Sort( CompareAreasMostAdvanced );
+	if ( !PickWeightedBySize( behind, MAX( 1, ( behind.Count() + 1 ) / 2 ), location ) )
+		return false;
+	TFBotFeatures::CountEvent( "eng_forward_nest" );
 	return true;
 }
 
@@ -175,14 +238,30 @@ bool TFBotEngineer::ShouldAdvanceNest( CTFBot *me, CObjectSentrygun *sentry, boo
 	if ( sentry->GetTimeSinceLastFired() < 5.0f || !me->CanPickupBuilding( sentry ) )
 		return false;
 
-	sentry->UpdateLastKnownArea();
-	CTFNavArea *nestArea = static_cast< CTFNavArea * >( sentry->GetLastKnownArea() );
-	if ( !nestArea )
-		return false;
+	const int team = me->GetTeamNumber();
+	bool advance = false;
+	if ( GetStyle( me ) == TFBOT_ENGINEER_BATTLE )
+	{
+		// Minis follow the fight.
+		sentry->UpdateLastKnownArea();
+		CTFNavArea *nestArea = static_cast< CTFNavArea * >( sentry->GetLastKnownArea() );
+		float front = TeamFrontIncursion( me, NULL );
+		advance = nestArea && front > 0.0f && front - nestArea->GetIncursionDistance( team ) > 700.0f;
+	}
+	else if ( TFGameRules()->GetGameType() == TF_GAMETYPE_ESCORT )
+	{
+		// Forward nests keep up with the cart; stock waits until it is a full
+		// sentry range past. Elsewhere the stock check moves the nest when the
+		// objective moves.
+		CTeamTrainWatcher *train = ( team == TF_TEAM_BLUE ) ? TFGameRules()->GetPayloadToPush( team ) : TFGameRules()->GetPayloadToBlock( team );
+		if ( train )
+		{
+			float sentryAlong = 0.0f;
+			train->ProjectPointOntoPath( sentry->GetAbsOrigin(), NULL, &sentryAlong );
+			advance = train->GetTrainDistanceAlongTrack() > sentryAlong + tf_bot_engineer_advance_gap.GetFloat();
+		}
+	}
 
-	float front = TeamFrontIncursion( me, NULL );
-	float gap = ( GetStyle( me ) == TFBOT_ENGINEER_BATTLE ) ? 700.0f : tf_bot_engineer_advance_gap.GetFloat();
-	bool advance = front > 0.0f && front - nestArea->GetIncursionDistance( me->GetTeamNumber() ) > gap;
 	if ( advance )
 		TFBotFeatures::CountEvent( "eng_advance_nest" );
 	return advance;

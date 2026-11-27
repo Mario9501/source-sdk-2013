@@ -1021,13 +1021,9 @@ bool CTFBot::GetWeightDesiredClassToSpawn( CUtlVector< ETFClass > &vecClassToSpa
 
 
 //-----------------------------------------------------------------------------------------------------
-ETFClass CTFBot::GetPresetClassToSpawn() const
+// The 12-entry preset table for this bot's team right now (offense, defense or competitive).
+static const ETFClass *SelectPresetRoster( const CTFBot *me )
 {
-	if ( !CanChangeClass() )
-	{
-		return (ETFClass)GetPlayerClass()->GetClassIndex();
-	}
-
 	static ETFClass offenseRoster[] =
 	{
 		TF_CLASS_MEDIC,
@@ -1093,10 +1089,10 @@ ETFClass CTFBot::GetPresetClassToSpawn() const
 	}
 	else if ( TFGameRules()->IsInKothMode() )
 	{
-		CTeamControlPoint *point = GetMyControlPoint();
+		CTeamControlPoint *point = me->GetMyControlPoint();
 		if ( point )
 		{
-			if ( GetTeamNumber() == ObjectiveResource()->GetOwningTeam( point->GetPointIndex() ) )
+			if ( me->GetTeamNumber() == ObjectiveResource()->GetOwningTeam( point->GetPointIndex() ) )
 			{
 				// defend our point
 				desiredRoster = defenseRoster;
@@ -1106,10 +1102,10 @@ ETFClass CTFBot::GetPresetClassToSpawn() const
 	else if ( TFGameRules()->GetGameType() == TF_GAMETYPE_CP )
 	{
 		CUtlVector< CTeamControlPoint * > captureVector;
-		TFGameRules()->CollectCapturePoints( const_cast< CTFBot * >( this ), &captureVector );
+		TFGameRules()->CollectCapturePoints( const_cast< CTFBot * >( me ), &captureVector );
 
 		CUtlVector< CTeamControlPoint * > defendVector;
-		TFGameRules()->CollectDefendPoints( const_cast< CTFBot * >( this ), &defendVector );
+		TFGameRules()->CollectDefendPoints( const_cast< CTFBot * >( me ), &defendVector );
 
 		// if we have any points we can capture, try to do so
 		if ( captureVector.Count() > 0 || defendVector.Count() == 0 )
@@ -1123,11 +1119,25 @@ ETFClass CTFBot::GetPresetClassToSpawn() const
 	}
 	else if ( TFGameRules()->GetGameType() == TF_GAMETYPE_ESCORT )
 	{
-		if ( GetTeamNumber() == TF_TEAM_RED )
+		if ( me->GetTeamNumber() == TF_TEAM_RED )
 		{
 			desiredRoster = defenseRoster;
 		}
 	}
+
+	return desiredRoster;
+}
+
+
+//-----------------------------------------------------------------------------------------------------
+ETFClass CTFBot::GetPresetClassToSpawn() const
+{
+	if ( !CanChangeClass() )
+	{
+		return (ETFClass)GetPlayerClass()->GetClassIndex();
+	}
+
+	const ETFClass *desiredRoster = SelectPresetRoster( this );
 
 	// count classes in use by my team, not including me
 	CCountClassMembers currentRoster( this, GetTeamNumber() );
@@ -1152,6 +1162,22 @@ ETFClass CTFBot::GetPresetClassToSpawn() const
 
 	AssertMsg( 0, "This return shouldn't happen." );
 	return TF_CLASS_UNDEFINED;
+}
+
+
+//-----------------------------------------------------------------------------------------------------
+// TFBot overhaul (M1): how many of each class the preset table wants on a team of this size
+// (the table repeats past 12 players).
+void CTFBot::GetPresetRosterWants( int teamSize, int want[ TF_LAST_NORMAL_CLASS ] ) const
+{
+	V_memset( want, 0, sizeof( int ) * TF_LAST_NORMAL_CLASS );
+	const ETFClass *desiredRoster = SelectPresetRoster( this );
+	for ( int i = 0; i < teamSize; ++i )
+	{
+		ETFClass iClass = desiredRoster[ i % 12 ];
+		if ( iClass > TF_CLASS_UNDEFINED && iClass < TF_LAST_NORMAL_CLASS )
+			++want[ iClass ];
+	}
 }
 
 

@@ -167,6 +167,7 @@ public:
 
 	bool GetWeightDesiredClassToSpawn( CUtlVector< ETFClass > &vecClassToSpawn ) const;	// return true if class in the output vector is required
 	ETFClass GetPresetClassToSpawn() const;	// return next class from preset table to spawn
+	void GetPresetRosterWants( int teamSize, int want[ TF_LAST_NORMAL_CLASS ] ) const;	// TFBot overhaul (M1): per-class counts the preset table wants for a team this size
 	bool CanChangeClass() const;
 	
 	const char *GetNextSpawnClassname( void ) const;

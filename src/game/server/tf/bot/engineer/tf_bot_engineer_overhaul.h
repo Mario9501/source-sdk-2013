@@ -2,9 +2,10 @@
 //
 // With the 'engineer' feature:
 //   - Style comes from the profile (engineer_style): turtle holds the
-//     objective, forward builds just behind the team's front line and moves
-//     the nest up as the team advances, battle (Gunslinger minis) needs the
-//     M6 unlock whitelist and plays as forward until then.
+//     objective; forward still covers the objective but from the most
+//     advanced spots behind the team's main group, and on payload keeps up
+//     with the cart; battle (Gunslinger minis, needs the M6 unlock whitelist,
+//     plays as forward without it) drops minis at the fight.
 //   - Buildings are carried instead of detonated: when the nest must move,
 //     the engineer picks up its sentry, carries it and places it again.
 //   - A sentry about to die is picked up and carried back to safety.
@@ -24,6 +25,7 @@
 #include "Path/NextBotPathFollow.h"
 
 class CTFBot;
+class CTFNavArea;
 class CBaseObject;
 class CObjectSentrygun;
 
@@ -32,11 +34,13 @@ namespace TFBotEngineer
 	bool IsActive( const CTFBot *bot );
 	int GetStyle( const CTFBot *bot );		// ETFBotEngineerStyle (battle -> forward until M6)
 
-	// Hook: CTFBotEngineerMoveToBuild::SelectBuildLocation, after candidates
-	// are collected. True if the style chose a location.
-	bool PickNestLocation( CTFBot *me, Vector *location );
+	// Hook: CTFBotEngineerMoveToBuild::SelectBuildLocation, after the stock
+	// candidates (areas that cover the objective) are collected. True if the
+	// style chose a location.
+	bool PickNestLocation( CTFBot *me, const CUtlVector< CTFNavArea * > &objectiveAreas, Vector *location );
 
-	// Forward style: the team has advanced well past the nest.
+	// Forward style on payload: the cart has moved well past the nest.
+	// Battle style: the main group has moved well past the mini.
 	bool ShouldAdvanceNest( CTFBot *me, CObjectSentrygun *sentry, bool isUnderAttack );
 
 	// The sentry is about to die and can still be saved.

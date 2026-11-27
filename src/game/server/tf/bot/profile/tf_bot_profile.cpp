@@ -643,17 +643,27 @@ const char *TFBotProfiles::ChooseClass( CTFBot *bot )
 
 	// What the team already has (excluding this bot).
 	int count[ TF_CLASS_COUNT_ALL ] = { 0 };
+	int teamSize = 1;
 	for ( int i = 1; i <= gpGlobals->maxClients; ++i )
 	{
 		CTFPlayer *player = ToTFPlayer( UTIL_PlayerByIndex( i ) );
 		if ( !player || player == bot || player->GetTeamNumber() != team )
 			continue;
+		++teamSize;
 		int cls = player->GetPlayerClass()->GetClassIndex();
 		if ( cls == TF_CLASS_UNDEFINED )
 			cls = player->GetDesiredPlayerClassIndex();
 		if ( cls > TF_CLASS_UNDEFINED && cls < TF_CLASS_COUNT_ALL )
 			++count[ cls ];
 	}
+
+	// Team composition follows the stock preset table (two medics, an
+	// engineer, two soldiers, two demomen, ...; on defense a second engineer).
+	// The profile decides which of the classes the table still needs this bot
+	// plays. Bots whose favourites fit none of them, or teams bigger than the
+	// table plans for, fall back to plain team-needs weighting.
+	int want[ TF_LAST_NORMAL_CLASS ];
+	bot->GetPresetRosterWants( teamSize, want );
 
 	bool defending = TFGameRules()->IsAttackDefenseMode() && team == TF_TEAM_RED;
 	bool facingSentry = bot->GetEnemySentry() != NULL;
@@ -680,7 +690,27 @@ const char *TFBotProfiles::ChooseClass( CTFBot *bot )
 
 	float weight[ TF_CLASS_COUNT_ALL ] = { 0.0f };
 	float total = 0.0f;
+
+	// The table's open slots first.
 	for ( int c = TF_FIRST_NORMAL_CLASS; c < TF_LAST_NORMAL_CLASS; ++c )
+	{
+		float w = p.m_classWeight[c];
+		if ( w <= 0.0f || count[c] >= want[c] || !TFGameRules()->CanBotChooseClass( bot, c ) )
+			continue;
+		if ( facingSentry )
+		{
+			if ( c == TF_CLASS_DEMOMAN ) w *= 2.5f;
+			else if ( c == TF_CLASS_SPY ) w *= 1.5f;
+			else if ( c == TF_CLASS_SOLDIER ) w *= 1.3f;
+		}
+		weight[c] = w;
+		total += w;
+	}
+	const bool fromRoster = total > 0.0f;
+	if ( fromRoster )
+		TFBotFeatures::CountEvent( "profile_class_roster" );
+
+	for ( int c = TF_FIRST_NORMAL_CLASS; c < TF_LAST_NORMAL_CLASS && !fromRoster; ++c )
 	{
 		float w = p.m_classWeight[c];
 		if ( w <= 0.0f || !TFGameRules()->CanBotChooseClass( bot, c ) )

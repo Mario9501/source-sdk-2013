@@ -268,14 +268,15 @@ void CTFBotEngineerMoveToBuild::SelectBuildLocation( CTFBot *me )
 	}
 
 
-	// TFBot overhaul (M3b): forward-style engineers nest just behind the team's front
-	if ( TFBotEngineer::PickNestLocation( me, &m_sentryBuildLocation ) )
+	// collect nav area candidates
+	CollectBuildAreas( me );
+
+	// TFBot overhaul (M3b): forward engineers take the most advanced of these behind
+	// the team's main group; battle engineers drop minis at the fight
+	if ( TFBotEngineer::PickNestLocation( me, m_sentryAreaVector, &m_sentryBuildLocation ) )
 	{
 		return;
 	}
-
-	// collect nav area candidates
-	CollectBuildAreas( me );
 
 	// choose based on surface area to avoid biasing finely subdivided areas of the mesh
 	float which = RandomFloat( 0.0f, m_totalSurfaceArea - 1.0f );
