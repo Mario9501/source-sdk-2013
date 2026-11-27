@@ -658,6 +658,18 @@ const char *TFBotProfiles::ChooseClass( CTFBot *bot )
 	bool defending = TFGameRules()->IsAttackDefenseMode() && team == TF_TEAM_RED;
 	bool facingSentry = bot->GetEnemySentry() != NULL;
 	int currentClass = bot->GetPlayerClass()->GetClassIndex();
+	bool haveCurrent = currentClass >= TF_FIRST_NORMAL_CLASS && currentClass < TF_LAST_NORMAL_CLASS;
+
+	// Switch only on respawn (DESIGN M1). The stock in-spawn re-evaluation
+	// (CTFBotMainAction::Update) asks again every second or two while the bot
+	// is alive in its spawn room and kills the bot to switch whenever the
+	// answer differs. A fresh weighted-random answer there meant a suicide loop,
+	// so while alive the answer is the class it has (unless limits now forbid it).
+	if ( bot->IsAlive() && haveCurrent && TFGameRules()->CanBotChooseClass( bot, currentClass ) )
+	{
+		TFPlayerClassData_t *data = GetPlayerClassData( currentClass );
+		return data ? data->m_szClassName : NULL;
+	}
 
 	// An engineer with buildings standing keeps them (switching destroys them).
 	if ( currentClass == TF_CLASS_ENGINEER && bot->GetObjectCount() > 0 )
@@ -696,16 +708,24 @@ const char *TFBotProfiles::ChooseClass( CTFBot *bot )
 		if ( ( c == TF_CLASS_SNIPER || c == TF_CLASS_SPY ) && count[c] >= 1 )
 			w *= 0.4f;
 
-		// People mostly keep their class between lives.
-		if ( c == currentClass )
-			w *= 6.0f;
-
 		weight[c] = w;
 		total += w;
 	}
 
 	if ( total <= 0.0f )
 		return NULL;
+
+	// People mostly keep their class between lives: 75% plus the class's own
+	// share of the weights (so a class the team needs is kept more), up to 95%.
+	if ( haveCurrent && weight[ currentClass ] > 0.0f )
+	{
+		float keepChance = clamp( 0.75f + weight[ currentClass ] / total, 0.75f, 0.95f );
+		if ( RandomFloat( 0.0f, 1.0f ) < keepChance )
+		{
+			TFPlayerClassData_t *data = GetPlayerClassData( currentClass );
+			return data ? data->m_szClassName : NULL;
+		}
+	}
 
 	float pick = RandomFloat( 0.0f, total );
 	for ( int c = TF_FIRST_NORMAL_CLASS; c < TF_LAST_NORMAL_CLASS; ++c )
@@ -714,7 +734,8 @@ const char *TFBotProfiles::ChooseClass( CTFBot *bot )
 		if ( pick <= 0.0f && weight[c] > 0.0f )
 		{
 			TFPlayerClassData_t *data = GetPlayerClassData( c );
-			TFBotFeatures::CountEvent( "profile_class_choice" );
+			if ( haveCurrent && c != currentClass )
+				TFBotFeatures::CountEvent( "profile_class_switch" );
 			return data ? data->m_szClassName : NULL;
 		}
 	}
