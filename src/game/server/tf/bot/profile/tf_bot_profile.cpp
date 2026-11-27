@@ -31,10 +31,10 @@ ConVar tf_bot_human_tier( "tf_bot_human_tier", "2", FCVAR_NONE,
 static const float s_fallbackTier[ TFBOT_PROFILE_TIER_COUNT ][ TFBOT_PROFILE_KEY_COUNT ] =
 {
 	//  react  aimErr track  speed  over   motion decis  aware  | aggr  flank call  retreat strafe eng
-	{   0.70f, 8.0f,  0.35f, 300.f, 0.35f, 1.40f, 0.15f, 0.20f,   0.5f, 0.3f, 0.5f, 0.35f,  0.3f,  0.f },	// new
-	{   0.45f, 5.0f,  0.20f, 500.f, 0.25f, 1.00f, 0.40f, 0.40f,   0.5f, 0.3f, 0.5f, 0.35f,  0.4f,  0.f },	// casual
-	{   0.30f, 3.0f,  0.10f, 800.f, 0.15f, 0.60f, 0.65f, 0.65f,   0.5f, 0.3f, 0.5f, 0.35f,  0.5f,  0.f },	// experienced
-	{   0.22f, 1.5f,  0.06f, 1100.f,0.08f, 0.35f, 0.88f, 0.85f,   0.5f, 0.3f, 0.5f, 0.35f,  0.6f,  0.f },	// competitive
+	{   0.70f, 4.5f,  0.35f, 700.f, 0.30f, 1.00f, 0.15f, 0.20f,   0.5f, 0.3f, 0.5f, 0.35f,  0.3f,  0.f },	// new
+	{   0.45f, 2.5f,  0.20f, 1000.f,0.20f, 0.70f, 0.40f, 0.40f,   0.5f, 0.3f, 0.5f, 0.35f,  0.4f,  0.f },	// casual
+	{   0.30f, 1.5f,  0.10f, 1300.f,0.12f, 0.45f, 0.65f, 0.65f,   0.5f, 0.3f, 0.5f, 0.35f,  0.5f,  0.f },	// experienced
+	{   0.22f, 0.8f,  0.06f, 1700.f,0.06f, 0.25f, 0.88f, 0.85f,   0.5f, 0.3f, 0.5f, 0.35f,  0.6f,  0.f },	// competitive
 };
 
 

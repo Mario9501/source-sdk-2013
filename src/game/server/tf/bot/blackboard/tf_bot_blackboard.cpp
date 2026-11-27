@@ -17,6 +17,7 @@
 #include "teamplay_round_timer.h"
 #include "GameEventListener.h"
 #include "NextBot/NextBotKnownEntity.h"
+#include "nav_mesh/tf_nav_area.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -666,9 +667,11 @@ private:
 
 		if ( !bot->IsAlive() )
 			return;
-		const CKnownEntity *threat = bot->GetVisionInterface()->GetPrimaryKnownThreat( true );
+		// Busy with a threat it already knows about, seen or not: the stock code
+		// is watching it (or where it was last seen).
+		const CKnownEntity *threat = bot->GetVisionInterface()->GetPrimaryKnownThreat( false );
 		if ( threat )
-			return;	// busy
+			return;
 
 		const float awareness = TFBotProfiles::GetEffective( bot ).Get( TFBOT_PROFILE_AWARENESS );
 		const float hearRange = Lerp( awareness, 500.0f, 1100.0f );
@@ -689,6 +692,11 @@ private:
 				continue;
 			if ( bot->GetVisionInterface()->IsAbleToSee( enemy, IVision::USE_FOV ) )
 				continue;
+			// Only someone in the open outside our view (behind us). Turning
+			// toward footsteps behind a wall just stares at the wall; watching
+			// the approaches (pre-aim / stock glances) covers that case.
+			if ( !bot->GetVisionInterface()->IsLineOfSightClear( enemy->WorldSpaceCenter() ) )
+				continue;
 			heard = enemy;
 			heardDist = dist;
 		}
@@ -703,16 +711,29 @@ private:
 			return;
 		}
 
-		// Glance around now and then.
+		// Now and then, check an enemy approach we aren't watching (outside the
+		// view cone, in the open). A random look over the shoulder mostly hit
+		// walls and cost forward vision: the perception-only A/B lost.
 		if ( RandomFloat() < 0.12f * awareness )
 		{
-			QAngle angles = bot->EyeAngles();
-			angles.y += RandomFloat( 100.0f, 260.0f );
-			angles.x = 0.0f;
-			Vector dir;
-			AngleVectors( angles, &dir );
-			bot->GetBodyInterface()->AimHeadTowards( bot->EyePosition() + dir * 500.0f, IBody::INTERESTING, 0.6f, NULL, "Glancing around" );
-			TFBotFeatures::CountEvent( "perception_glance" );
+			CTFNavArea *myArea = bot->GetLastKnownArea();
+			if ( myArea )
+			{
+				const CUtlVector< CTFNavArea * > &areas = myArea->GetEnemyInvasionAreaVector( bot->GetTeamNumber() );
+				Vector view = bot->GetBodyInterface()->GetViewVector();
+				for ( int tries = 0; tries < 6 && areas.Count() > 0; ++tries )
+				{
+					Vector spot = areas[ RandomInt( 0, areas.Count() - 1 ) ]->GetRandomPoint() + Vector( 0, 0, HumanEyeHeight );
+					Vector to = spot - bot->EyePosition();
+					if ( to.NormalizeInPlace() < 150.0f || DotProduct( to, view ) > 0.5f )
+						continue;	// too close, or already in view
+					if ( !bot->GetVisionInterface()->IsLineOfSightClear( spot ) )
+						continue;
+					bot->GetBodyInterface()->AimHeadTowards( spot, IBody::INTERESTING, 0.6f, NULL, "Checking an approach" );
+					TFBotFeatures::CountEvent( "perception_glance" );
+					break;
+				}
+			}
 		}
 	}
 

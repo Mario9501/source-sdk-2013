@@ -19,8 +19,20 @@ extern ConVar tf_bot_ballistic_elevation_rate;
 
 ConVar tf_bot_aim_overshoot_settle( "tf_bot_aim_overshoot_settle", "0.18", FCVAR_CHEAT,
 	"Time constant (s) for a flick's overshoot to settle (M2 aim model)" );
-ConVar tf_bot_aim_motion_scale( "tf_bot_aim_motion_scale", "0.1", FCVAR_CHEAT,
+ConVar tf_bot_aim_motion_scale( "tf_bot_aim_motion_scale", "0.05", FCVAR_CHEAT,
 	"Degrees of extra aim error per degree/second of target angular speed, before the profile's aim_motion_penalty" );
+ConVar tf_bot_aim_error_scale( "tf_bot_aim_error_scale", "1.0", FCVAR_CHEAT,
+	"Scales the profile's aim_error (hand wobble) and aim_overshoot (M2 aim model)" );
+ConVar tf_bot_aim_wobble_settle( "tf_bot_aim_wobble_settle", "0.5", FCVAR_CHEAT,
+	"Time constant (s) for hand wobble to shrink while a bot stays on one target (M2 aim model)" );
+ConVar tf_bot_aim_wobble_floor( "tf_bot_aim_wobble_floor", "0.25", FCVAR_CHEAT,
+	"Fraction of the profile's aim_error left once a bot has settled on a target (M2 aim model)" );
+ConVar tf_bot_aim_speed_scale( "tf_bot_aim_speed_scale", "1.0", FCVAR_CHEAT,
+	"Scales the profile's aim_speed, the head turn speed (M2 aim model)" );
+ConVar tf_bot_aim_preaim( "tf_bot_aim_preaim", "1", FCVAR_CHEAT,
+	"Out of combat, hold the nearest likely enemy approach instead of the stock random glances (M2 aim model)" );
+ConVar tf_bot_aim_preaim_hold_scale( "tf_bot_aim_preaim_hold_scale", "1.0", FCVAR_CHEAT,
+	"Scales how long a pre-aim angle is held (1-2 s by awareness at 1.0) (M2 aim model)" );
 ConVar tf_bot_aim_debug( "tf_bot_aim_debug", "0", FCVAR_CHEAT, "Draw the M2 aim model's ideal and erroneous aim points" );
 
 // Projectile gravity in units/s^2 at gravity scale 1 (sv_gravity default).
@@ -60,7 +72,7 @@ static TFBotAimState_t *StateFor( const CTFBot *bot )
 //-----------------------------------------------------------------------------
 float TFBotAim::GetMaxHeadAngularVelocity( const CTFBot *me )
 {
-	return TFBotProfiles::GetEffective( me ).Get( TFBOT_PROFILE_AIM_SPEED );
+	return TFBotProfiles::GetEffective( me ).Get( TFBOT_PROFILE_AIM_SPEED ) * tf_bot_aim_speed_scale.GetFloat();
 }
 
 
@@ -170,7 +182,8 @@ static Vector IdealPoint( CTFBot *me, const CBaseCombatCharacter *subject, const
 
 	// Lead: iterate the intercept twice. Weaker players misjudge the lead.
 	const float speed = ProjectileSpeed( gun );
-	const float leadFactor = 1.0f + st.m_leadNoise * ( 1.0f - p.Get( TFBOT_PROFILE_DECISION_QUALITY ) ) * 0.35f;
+	// Lead misjudgement grows with aim error: about +-10% for the casual tier.
+	const float leadFactor = 1.0f + st.m_leadNoise * 0.6f * ( 1.0f - aimSkill ) * tf_bot_aim_error_scale.GetFloat();
 	Vector velocity = subject->GetAbsVelocity();
 	if ( groundAim )
 		velocity.z = 0.0f;
@@ -236,7 +249,7 @@ Vector TFBotAim::SelectTargetPoint( CTFBot *me, const CBaseCombatCharacter *subj
 		if ( flick.NormalizeInPlace() < 0.001f )
 			flick = Vector( los.y, -los.x, 0.0f ).Normalized();
 		st->m_overshootDir = flick;
-		st->m_overshootDeg = MIN( p.Get( TFBOT_PROFILE_AIM_OVERSHOOT ) * flickDeg, 12.0f );
+		st->m_overshootDeg = MIN( p.Get( TFBOT_PROFILE_AIM_OVERSHOOT ) * tf_bot_aim_error_scale.GetFloat() * flickDeg, 12.0f );
 	}
 	st->m_lastUpdate = now;
 	const float t = now - st->m_acquireTime;
@@ -249,8 +262,12 @@ Vector TFBotAim::SelectTargetPoint( CTFBot *me, const CBaseCombatCharacter *subj
 	Vector up;
 	CrossProduct( right, los, up );
 
-	// Hand wobble: a slowly circling offset whose size breathes.
-	float wobbleMag = p.Get( TFBOT_PROFILE_AIM_ERROR ) * ( 0.55f + 0.45f * sinf( 1.3f * t + st->m_wobbleMagPhase ) );
+	// Hand wobble: a slowly circling offset whose size breathes, and shrinks
+	// toward a floor while the bot stays on the same target (people settle).
+	float wobbleFloor = clamp( tf_bot_aim_wobble_floor.GetFloat(), 0.0f, 1.0f );
+	float settled = wobbleFloor + ( 1.0f - wobbleFloor ) * expf( -t / MAX( tf_bot_aim_wobble_settle.GetFloat(), 0.01f ) );
+	float wobbleMag = p.Get( TFBOT_PROFILE_AIM_ERROR ) * tf_bot_aim_error_scale.GetFloat() * settled *
+					  ( 0.55f + 0.45f * sinf( 1.3f * t + st->m_wobbleMagPhase ) );
 	float wobbleAng = st->m_wobblePhase + 0.9f * t;
 	float errRight = wobbleMag * cosf( wobbleAng );
 	float errUp = 0.6f * wobbleMag * sinf( wobbleAng );
@@ -291,7 +308,7 @@ Vector TFBotAim::SelectTargetPoint( CTFBot *me, const CBaseCombatCharacter *subj
 //-----------------------------------------------------------------------------
 bool TFBotAim::UpdatePreAim( CTFBot *me, bool lookForEnemies )
 {
-	if ( !IsActive( me ) )
+	if ( !IsActive( me ) || !tf_bot_aim_preaim.GetBool() )
 		return false;
 
 	TFBotAimState_t *st = StateFor( me );
@@ -333,7 +350,7 @@ bool TFBotAim::UpdatePreAim( CTFBot *me, bool lookForEnemies )
 	}
 
 	// Hold the angle; aware players check more angles, so they hold shorter.
-	float hold = Lerp( awareness, 3.0f, 1.5f ) * RandomFloat( 0.8f, 1.2f );
+	float hold = Lerp( awareness, 2.0f, 1.0f ) * RandomFloat( 0.8f, 1.2f ) * MAX( tf_bot_aim_preaim_hold_scale.GetFloat(), 0.05f );
 	if ( bestScore > 0.0f )
 	{
 		me->GetBodyInterface()->AimHeadTowards( best, IBody::INTERESTING, hold, NULL, "Pre-aiming the likely enemy approach" );
