@@ -743,6 +743,14 @@ $Project "Server (TF)"
 				$File	"tf\bot\tf_bot_squad.h"
 				$File	"tf\bot\tf_bot_locomotion.cpp"
 				$File	"tf\bot\tf_bot_locomotion.h"
+
+				$Folder	"Overhaul"
+				{
+					$File	"tf\bot\features\tf_bot_features.cpp"
+					$File	"tf\bot\features\tf_bot_features.h"
+					$File	"tf\bot\metrics\tf_bot_metrics.cpp"
+					$File	"tf\bot\metrics\tf_bot_metrics.h"
+				}
 			}
 			
 			$Folder "NavMesh"

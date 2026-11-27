@@ -125,6 +125,8 @@ Fixed balancing: profiles are chosen so team skill totals are roughly equal. Eac
 
 ### 3.7 Feature flags and A/B testing
 - Each improvement sits behind **its own per-bot feature flag**. Each team gets a convar choosing which flags its bots spawn with.
+- **Syntax:** `tf_bot_features_red` / `tf_bot_features_blu` hold a comma list of feature names, or the keywords `stock` (none), `default` (proven features; the convar default) or `all`. A bot reads its team's value **at every spawn** (`TFBotFeatures::OnBotSpawn`, hooked in `CTFBot::Spawn`). `tf_bot_features_list` and `tf_bot_features_dump` show the registry and each bot's set. Code: `tf/bot/features/`.
+- New features are appended to `ETFBotFeature`, never renumbered. Time feature code with `TFBOT_FEATURE_COST_SCOPE( feature )` so its cost appears in the metrics.
 - This supports full new-vs-stock matches and **ablation runs** that switch off one feature at a time.
 - A feature becomes **on by default** once A/B results and playtests support it.
 - Old and new code paths must be able to run **side by side in the same match**.
@@ -138,6 +140,11 @@ Fixed balancing: profiles are chosen so team skill totals are roughly equal. Eac
   - accuracy compared with typical human ranges
   - cost per feature
 - **Your playtests are the final judge.**
+- **Fairness:** every matchup runs **in both directions in equal numbers** (A on RED vs B on BLU, then swapped), because most test maps are asymmetric. Results are reported per side and combined.
+- **Unit:** one data point is one **round**. Only real round-timer stalemates count as rounds; other stalemate kinds are ignored. Matches are **12 vs 12**.
+- **Throughput:** several servers **in parallel** (default 4; one 22-bot server uses about 0.7 GB RAM and a quarter of a core at timescale 1). A raised `host_timescale` is used only once stock-vs-stock results at that speed match timescale 1 within noise. *Why:* NextBot runs at most one round of full bot updates per server frame, with a 15 ms wall-clock budget (`NextBot/NextBotManager.cpp:318-327`, `nb_update_framelimit`), so packing more ticks into a frame could slow bots' thinking in game time.
+- **Metrics:** JSON Lines per match, from `tf/bot/metrics/`. Hitscan accuracy counts a hit when a `player_hurt` comes from an attacker whose active hitscan gun fired in that same tick, which excludes sentry damage. Projectile accuracy is deferred to M2.
+- **Control:** the harness drives srcds only through the command line. With `tf_bot_ab_rounds N`, the game writes its metrics and quits after N rounds. No RCON.
 
 ### 3.9 Workflow
 - One short-lived **branch per milestone**. **No PRs.** When the milestone's build and checks pass, Claude merges it into `master` with linear history (rebase / fast-forward), pushes, and deletes the branch. *(Changed 2026-11-26: PRs add nothing on a personal, local-only project.)*
@@ -156,8 +163,17 @@ Fixed balancing: profiles are chosen so team skill totals are roughly equal. Eac
 | Listen server / client | `game/mod_tf_linux64` |
 | Dedicated server | Source SDK Base 2013 Dedicated Server (app 244310) at `~/srcds/sdk2013/` |
 | steamcmd | `~/steamcmd/steamcmd.sh` |
-| Bot-only matches | Need `tf_bot_join_after_player 0` (default 1, `tf/bot/tf_bot_manager.cpp:28`) |
-| `host_timescale` | Engine convar. Whether it's cheat-protected is unverified (assume `sv_cheats 1`). |
+| Bot-only matches | Need `tf_bot_join_after_player 0` (default 1, `tf/bot/tf_bot_manager.cpp:28`) **and** `tf_allow_server_hibernation 0`; otherwise an empty dedicated server stops simulating |
+| `host_timescale` | Not cheat-protected (flags: `replicated` only). Measured: 4× gave about 5.7× the kills of timescale 1 in the same wall time. |
+| srcds setup | `tools/tfbot/ds_setup.py` builds `~/srcds/views/` (see below). Re-run it after adding top-level folders to `game/mod_tf`. |
+| A/B runs | `tools/tfbot/ab.py run …` / `ab.py report …`; output goes to `tfbot_runs/` (gitignored) |
+
+**Why srcds needs a "server view" of the mod** (all found while setting up M0):
+1. The dedicated server app ships only a **32-bit** launcher. `srcds_linux64` is copied from the SDK Base client install.
+2. `gameinfo.txt`'s `|appid_N|` paths resolve only through the Steam client's `SteamApps()` (`src/public/filesystem_init.cpp:697-745`), which srcds lacks. The view's `gameinfo.txt` uses absolute paths instead, and those go through **space-free symlinks**, because paths with spaces ("Team Fortress 2") failed to mount.
+3. The dedicated engine loads **`server_srv.so`**, never `server.so`, so the view aliases it.
+4. Our `server.so` links the client-flavour `libtier0.so` / `libvstdlib.so` and asks for `soundemittersystem.so` / `scenefilecache.so` (`_DLL_EXT` is baked in at compile time). `~/srcds/views/lib/` aliases each to the engine's `_srv` copy, so only one instance of each is loaded.
+5. srcds ignores commands piped into stdin when there's no terminal, so everything goes on the command line.
 
 ### Test maps
 | Purpose | Maps |
@@ -299,7 +315,5 @@ Rocket and sticky jumps as **jump links between nav areas**. This requires chang
 
 ## 7. Open details (decide during the relevant milestone)
 - The exact profile key list and value ranges (M1).
-- Metrics file format and A/B runner command line (M0).
-- Feature-flag convar names and syntax (M0).
-- Whether `host_timescale` needs `sv_cheats` on this engine build (M0).
 - Recognising human voice commands: which response concepts map to which blackboard entries (M3).
+- *(Settled in M0: metrics format, runner command line, feature-flag syntax, `host_timescale` doesn't need `sv_cheats`. See §3.7, §3.8, §4.)*

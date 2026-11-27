@@ -513,3 +513,6 @@ src/lib/public/linux64/raytrace.a
 src/lib/public/linux64/tier1.a
 src/lib/public/linux64/vgui_controls.a
 game/mod_*_linux64
+
+# TFBot A/B harness runs (tools/tfbot/ab.py)
+tfbot_runs/

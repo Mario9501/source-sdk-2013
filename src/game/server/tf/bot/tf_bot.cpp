@@ -36,6 +36,7 @@
 #include "bot/behavior/tf_bot_behavior.h"
 #include "bot/map_entities/tf_bot_generator.h"
 #include "bot/map_entities/tf_bot_hint_entity.h"
+#include "bot/features/tf_bot_features.h"	// TFBot overhaul
 
 ConVar tf_bot_force_class( "tf_bot_force_class", "", FCVAR_GAMEDLL, "If set to a class name, all TFBots will respawn as that class" );
 
@@ -1331,6 +1332,8 @@ CTFBot::~CTFBot()
 void CTFBot::Spawn()
 {
 	BaseClass::Spawn();
+
+	TFBotFeatures::OnBotSpawn( this );	// TFBot overhaul: snapshot this team's feature set
 
 	m_spawnArea = NULL;
 	m_justLostPointTimer.Invalidate();

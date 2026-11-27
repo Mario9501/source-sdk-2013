@@ -33,6 +33,7 @@
 #include "tf_gcmessages.h"
 #include "rtime.h"
 #include "team_train_watcher.h"
+#include "bot/metrics/tf_bot_metrics.h"	// TFBot overhaul
 
 extern ConVar tf_mm_trusted;
 
@@ -1021,6 +1022,9 @@ void CTFGameStats::Event_PlayerFiredWeapon( CTFPlayer *pPlayer, bool bCritical )
 
 			// inform the bots
 			TheNextBots().OnWeaponFired( pPlayer, pTFWeapon );
+
+			// TFBot overhaul: shot counts for A/B accuracy metrics
+			TFBotMetrics_OnWeaponFired( pPlayer, pTFWeapon );
 		}
 	}
 
