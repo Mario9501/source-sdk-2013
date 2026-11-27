@@ -106,6 +106,7 @@ About 10–15% of bot code is MvM-only. `IsMannVsMachineMode` appears 73 times a
 - `tf_bot_difficulty` 0–3 stays as the setting people use, but now means **human skill tiers**: *new player / casual / experienced / competitive*. A tier scales decision quality (positioning, target choice, when to retreat) as well as mechanics.
 - Each bot has a **profile** with skill parameters and play-style traits, plus **per-bot variation**, so two bots on the same tier don't play identically. A profile is tied to a **bot name**, so a given bot behaves the same way for the whole session.
 - Aim and reaction parameters are calibrated from **published human data** (e.g. roughly 200–250 ms visual reaction for experienced FPS players) and tuned by playtesting.
+- **Calibration rule** *(added 2026-11-27 after A/B)*: tier N is **mechanically at par with stock difficulty N**. An aim-only A/B against stock at the same difficulty should land near 50%. Human character comes from small errors that settle, not from being weaker. Any gain over stock must come from better decisions. *Why:* the first tier values were mechanically weaker than stock (stock aim has no error, only lag), and that hid every other feature's effect. `tf_bot_aim_error_scale` scales every tier's aim error for playtesting. See results/M1-M7-tuning.md.
 
 ### 3.3 Information honesty
 No omniscience. Everything a bot or the team blackboard knows comes from something actually **seen, heard, or taken damage from**, by itself or a teammate (human or bot). Knowledge **fades** over time. Heard positions are **approximate**.
@@ -144,7 +145,8 @@ Fixed balancing: profiles are chosen so team skill totals are roughly equal. Eac
 - **Unit:** one data point is one **round**. Only real round-timer stalemates count as rounds; other stalemate kinds are ignored. Matches are **12 vs 12**.
 - **Throughput:** several servers **in parallel** (default 4; one 22-bot server uses about 0.7 GB RAM and a quarter of a core at timescale 1), at **timescale 2**: it matched timescale 1 on every metric, while 4× shortened payload rounds (results/M0-timescale.md). *Why:* NextBot runs at most one round of full bot updates per server frame, with a 15 ms wall-clock budget (`NextBot/NextBotManager.cpp:318-327`, `nb_update_framelimit`), so packing more ticks into a frame could slow bots' thinking in game time.
 - **Metrics:** JSON Lines per match, from `tf/bot/metrics/`. Hitscan accuracy counts a hit when a `player_hurt` comes from an attacker whose active hitscan gun fired in that same tick, which excludes sentry damage. Projectile accuracy is deferred to M2.
-- **Control:** the harness drives srcds only through the command line. With `tf_bot_ab_rounds N`, the game writes its metrics and quits after N rounds. No RCON.
+- **Control:** the harness drives srcds only through the command line. With `tf_bot_ab_rounds N`, the game writes its metrics and quits after N rounds. No RCON. Settings go in a per-job cfg run with `+exec` (srcds caps the command line at 512 characters). `sv_cheats 1` comes first, or `FCVAR_CHEAT` overrides are silently rejected. When a sweep's variants look identical, grep the job logs for "Can't use cheat cvar".
+- **Long rounds:** `tf_bot_ab_round_minutes` caps a round in game minutes. The team holding more control points wins, and a tie is a stalemate. `ab.py` applies it to cp_process_final (20), where bot rounds otherwise ran 20–90 minutes.
 
 ### 3.9 Workflow
 - One short-lived **branch per milestone**. **No PRs.** When the milestone's build and checks pass, Claude merges it into `master` with linear history (rebase / fast-forward), pushes, and deletes the branch. *(Changed 2026-11-26: PRs add nothing on a personal, local-only project.)*
@@ -200,12 +202,16 @@ M5 barely touches the AI and could move earlier if playing more maps soon matter
 
 Each milestone lists **proposed exit criteria**. These are proposals, to be confirmed when the milestone starts.
 
+**Status (2026-11-27):** every milestone is built. *Testing* means the feature is built, smoke-tested and A/B-checked, and stays **off by default** until your playtests promote it (§3.7). Results: results/M1-M7-tuning.md (diagnosis and calibration) and results/M1-M7-all-vs-stock.md (the headline run).
+
 ### C0 · Cleanup *(done: `45cdcad2`)*
 Removed the HL2 / HL2:DM / Episodic / Lost Coast projects and `game/mod_hl2mp`. Kept the 14 `hl2/` files the TF build still compiles or lists, at their original paths. Build scripts now build TF only, `.gitignore` covers build output, and the README is updated. Verified: the TF object set (2068 objects) is identical before and after.
 
 ### D0 · Design doc *(this file; done: `b1617b15`)*
 
-### M0 · Harness
+### M0 · Harness *(done: exit met)*
+A/A (`test_noop` vs `stock`) over 120 rounds: **48% [39–56]**, and every map's interval contains 50% (results/M0-baseline.md). Timescale 2 was chosen (results/M0-timescale.md).
+
 - **Feature-flag system** (§3.7): per-bot flags set at spawn from per-team convars.
 - **Metrics logging** (§3.8) to a machine-readable file per match.
 - **A/B runner script** for headless srcds: map rotation over the test set, team assignment, timescale, N rounds, and a results summary.
@@ -213,7 +219,7 @@ Removed the HL2 / HL2:DM / Episodic / Lost Coast projects and `game/mod_hl2mp`. 
 - **Baseline runs** of stock vs stock on all six Valve-nav maps.
 - *Proposed exit:* stock-vs-stock runs land near 50% win rate on each map, which shows the harness itself is fair, and a results summary is generated automatically.
 
-### M1 · Profiles
+### M1 · Profiles *(built; testing)*
 - **Profile files:**
   - stock `scripts/tf_bot_profiles.txt`, custom `scripts/tf_bot_profiles_custom.txt`, never overwritten
   - **inheritance** through a `"base"` key (a tier or another profile)
@@ -228,13 +234,13 @@ Removed the HL2 / HL2:DM / Episodic / Lost Coast projects and `game/mod_hl2mp`. 
 - **MvM mapping** (§3.1).
 - **Console tooling:** `tf_bot_profile_new <name> [base]`, `tf_bot_profile_set <name> <key> <value>` (tab completion), `tf_bot_profile_show`, `tf_bot_profile_save`, `tf_bot_profile_reload` (hot reload; live bots update), `tf_bot_add_profile <name> [team]`.
 
-### M1b · Profile GUI
+### M1b · Profile GUI *(built; not yet tried in-game)*
 - An in-game panel opened with `tf_bot_profile_editor`. Its sliders and fields are **built from the validation schema**, so later keys appear automatically.
 - **Edit the bot you're looking at** with live hot reload, plus spawn-test-bot and save buttons.
 - Reads and writes the profile files directly, which works because everything is local, and uses the M1 commands as its back end.
 - *Why before M2:* it becomes the main tool for tuning aim by feel.
 
-### M2 · Aim model
+### M2 · Aim model *(built and calibrated to par; testing)*
 Replace the "re-read every N seconds + jitter + fixed turn speed" model with:
 - a **reaction delay** before responding to a new threat
 - **flicks that overshoot and then correct**
@@ -244,7 +250,7 @@ Replace the "re-read every N seconds + jitter + fixed turn speed" model with:
 
 All parameters come from the profile.
 
-### M3 · Blackboard, voice, perception
+### M3 · Blackboard, voice, perception *(built; testing)*
 - A **per-team blackboard**: enemy sightings, known sentries, uber readiness, push readiness, spy alerts. Fed only by perception (§3.3) and fading over time.
 - **Behaviours that use it:** grouping up before a push, waiting for an uber that's nearly charged, focus fire on called targets, medics answering **bot** calls (remove the human-only check).
 - **Voice in both directions:** bots say the matching voice command when they post something important (rate-limited). Human voice commands, heard through `OnSpokeConcept`, feed the blackboard.
@@ -252,7 +258,7 @@ All parameters come from the profile.
 - Fix `IsGoodUberTarget` (§2.9).
 - *Note:* the perception additions were placed here during planning; move them if that turns out wrong.
 
-### M3b · Engineers
+### M3b · Engineers *(built; testing)*
 - **Three styles**, chosen by profile and fixed for the session:
   - *Turtle:* today's behaviour, improved.
   - *Forward:* the nest follows the push.
@@ -266,10 +272,10 @@ All parameters come from the profile.
 - **Turtle improvements:** better choke choice and upgrading teammates' buildings (the TODO at `tf_bot_engineer_building.cpp:68`).
 - Depends on M3 (push state).
 
-### M4 · Combat movement (phase 1)
+### M4 · Combat movement (phase 1) *(built; testing)*
 Strafing patterns, scout double-jump dodges, jumping around corners. **No pathfinding changes.** All of it is driven by the profile.
 
-### M4b · Playstyle cloning
+### M4b · Playstyle cloning *(built; testing)*
 - **Opt-in live recording:** `tf_bot_record_player <name>`, normally just the host. Stats build up across sessions in a local stats file.
 - **What it measures:**
   - class and loadout choices
@@ -283,7 +289,7 @@ Strafing patterns, scout double-jump dodges, jumping around corners. **No pathfi
 - `tf_bot_profile_from_record <name>` fits these stats onto profile parameters with **plain statistics, no ML**. It writes an ordinary custom profile based on the closest tier, editable in the GUI.
 - Later milestones add their own measurements as they land.
 
-### M5 · Nav pipeline
+### M5 · Nav pipeline *(done: 81 navs generated, 62 verified; results/M5-navs.md)*
 - **Batch generation (main path):** a script runs headless srcds per nav-less map, generates and analyses, saves to `game/mod_tf/maps/`, then quits.
 - **Fallback at map load:** if a map has no nav from any source, generate it, show a console and chat notice, keep bots out until it's done, then reload the map once.
 - **Never shadow an existing nav:** detection uses the **loader's answer**, which covers the VPK, the mod folder and BSP-embedded navs. A force-regenerate convar exists for comparisons.
@@ -294,7 +300,7 @@ Strafing patterns, scout double-jump dodges, jumping around corners. **No pathfi
 - **Scope:** all installed official maps, plus any community or Workshop BSP.
 - **No generated sniper/sentry hints.** Revisit only if A/B data shows snipers or engineers doing worse on generated navs.
 
-### M6 · Unlocks
+### M6 · Unlocks *(built; testing)*
 - A **curated whitelist**: an item is added only once the bot code handles it.
 - **Loadouts set per profile**, falling back to stock.
 - **First batch:**
@@ -304,7 +310,7 @@ Strafing patterns, scout double-jump dodges, jumping around corners. **No pathfi
 - Later batches: Frontier Justice, Widowmaker, Rescue Ranger, Quick-Fix logic, …
 - Items are created through `AddItem` / `GenerateItemFromDefIndex` (§2.5). No random items from the full schema.
 
-### M7 · Mobility jumps (phase 2)
+### M7 · Mobility jumps (phase 2) *(built; testing)*
 Rocket and sticky jumps as **jump links between nav areas**. This requires changes to the path planner and locomotion (`NextBot/Path/NextBotPathFollow.cpp`, `tf/bot/tf_bot_locomotion.cpp`).
 
 ---
@@ -330,10 +336,12 @@ Every feature below is registered in `tf/bot/features/` and **off by default** (
 **Console commands:** `tf_bot_features_list`, `tf_bot_features_dump`, `tf_bot_profile_keys`, `tf_bot_profile_list`, `tf_bot_profile_show`, `tf_bot_profile_new`, `tf_bot_profile_set`, `tf_bot_profile_save`, `tf_bot_profile_reload`, `tf_bot_add_profile`, `tf_bot_profile_editor` (client), `tf_bot_record_player`, `tf_bot_profile_from_record`, `tf_bot_nav_validate`, `tf_bot_unlocks_list`.
 
 **Where the build differs from the plan:**
+- **M1:** a bot's class is decided **once per life**. While alive, `ChooseClass` answers with the current class. On death the bot keeps it with 75–95% odds, else picks by weight. *Why:* the stock in-spawn re-evaluation suicides to switch whenever the answer changes, and a fresh random answer caused 73 suicides a round (results/M1-M7-tuning.md).
 - **M1:** anonymous bots need no hand-written profiles. Each bot name maps to its tier plus a name-seeded variation, and its style traits and class preferences are derived from the name too, so personalities are stable per name. `tf_bot_human_tier` sets how humans count when balancing.
 - **M1b:** the editor sends `tf_bot_profile_*` commands instead of writing files itself, so the console and the GUI can't disagree. It reads the files only to show values.
+- **M2:** hand wobble settles toward 25% while the bot stays on a target. Lead error scales with aim error. Pre-aim holds an angle for 1–2 s (`tf_bot_aim_preaim 0` turns it off). Sweep knobs: `tf_bot_aim_error_scale`, `tf_bot_aim_speed_scale`, `tf_bot_aim_motion_scale`, `tf_bot_aim_wobble_settle`, `tf_bot_aim_wobble_floor`, `tf_bot_aim_preaim_hold_scale`.
 - **M2:** the stock tracking loop is kept, and its levers are profile-driven: tracking interval (M1), turn speed, and the target point with the error model. A longer tracking interval means the bot keeps extrapolating a stale velocity, which is what makes strafing work against it.
-- **M3:** `TheNextBots().OnSpokeConcept` is never called in this codebase, so voice commands come through a new hook in `CTFPlayer::SpeakConceptIfAllowed`. Hearing turns the bot toward an approximate spot (`INTERESTING` look) instead of creating a known entity, which keeps it honest.
+- **M3:** `TheNextBots().OnSpokeConcept` is never called in this codebase, so voice commands come through a new hook in `CTFPlayer::SpeakConceptIfAllowed`. Hearing turns the bot toward an approximate spot (`INTERESTING` look) instead of creating a known entity, which keeps it honest. Hearing reacts only to an enemy **in the open behind** the bot (not behind a wall) and yields to any known threat. Glances check an enemy approach **outside the view cone**. *Why:* gaze is the scarce resource. A bot only notices what's in its 90° cone, and looking at walls cost the perception-only A/B.
 - **M3b:** pickup uses `CTFPlayer::TryToPickupBuilding()` while facing the building; placement reuses the stock "valid placement → fire, else shuffle" loop.
 - **M5:** doors and the payload cart need no special handling during generation (brush-only trace mask; doors are treated as passable). Generation also needs `tf_allow_server_hibernation 0` on an empty server.
 - **M7:** soldiers (rocket launcher, Direct Hit, Cow Mangler) and demomen (stickybomb launcher) only, at 60%+ health.
@@ -343,6 +351,8 @@ Every feature below is registered in `tf/bot/features/` and **off by default** (
 - Generated sniper and sentry hints, if the M5 data calls for them.
 - Calibrating aim from recorded `.dem` demos, if hand-tuned values feel off.
 - Parsing demos as an extra input for playstyle cloning (M4b uses live recording).
+- Nav generation on maps whose floors are props or entity brushes (`pl_snowycoast`, `vsh_outburst` sample almost nothing), and per-mode objective rules in the validator (arena, VSH, PD).
+- A guard in the A/B harness: record the effective values of `--override` convars in `match_start`, so a rejected setting can't pass silently.
 
 ## 7. Open details (decide during the relevant milestone)
 - The exact profile key list and value ranges (M1).
