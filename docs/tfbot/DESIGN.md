@@ -140,8 +140,9 @@ Fixed balancing: profiles are chosen so team skill totals are roughly equal. Eac
 - **Your playtests are the final judge.**
 
 ### 3.9 Workflow
-- One **branch and PR per milestone** on `Mario9501/source-sdk-2013`. The PR description includes the A/B summary.
-- You playtest and merge. Nothing reaches `master` without your OK.
+- One short-lived **branch per milestone**. **No PRs.** When the milestone's build and checks pass, Claude merges it into `master` with linear history (rebase / fast-forward), pushes, and deletes the branch. *(Changed 2026-11-26: PRs add nothing on a personal, local-only project.)*
+- Each milestone's A/B summary goes in `docs/tfbot/results/<milestone>.md`, committed with the milestone.
+- Your playtests still decide whether a feature's flag becomes on by default (§3.7).
 - Within a milestone, work in small steps that each build.
 
 ---
@@ -181,10 +182,10 @@ M5 barely touches the AI and could move earlier if playing more maps soon matter
 
 Each milestone lists **proposed exit criteria**. These are proposals, to be confirmed when the milestone starts.
 
-### C0 · Cleanup *(PR #2)*
+### C0 · Cleanup *(done: `45cdcad2`)*
 Removed the HL2 / HL2:DM / Episodic / Lost Coast projects and `game/mod_hl2mp`. Kept the 14 `hl2/` files the TF build still compiles or lists, at their original paths. Build scripts now build TF only, `.gitignore` covers build output, and the README is updated. Verified: the TF object set (2068 objects) is identical before and after.
 
-### D0 · Design doc *(this file)*
+### D0 · Design doc *(this file; done: `b1617b15`)*
 
 ### M0 · Harness
 - **Feature-flag system** (§3.7): per-bot flags set at spawn from per-team convars.
