@@ -2,9 +2,7 @@
 
 Source code for Source SDK 2013.
 
-Contains the game code for Half-Life 2, HL2: DM and TF2.
-
-**Now including Team Fortress 2! ✨**
+This fork contains only the Team Fortress 2 game code (`mod_tf`). The Half-Life 2, HL2: DM, Episodic and Lost Coast projects have been removed; the handful of `hl2/` source files that the TF build still compiles are kept at their original paths.
 
 ## Build instructions
 
@@ -39,17 +37,20 @@ The default launch options should be already filled in for the `Release` configu
 Requirements:
  - Source SDK 2013 Multiplayer installed via Steam
  - podman
+ - A ccache directory for the build container to mount (`mkdir -p ~/.ccache`, or set `CCACHE_DIR`)
 
 Inside the cloned directory, navigate to `src`, run:
 ```bash
 ./buildallprojects
 ```
 
-This will build all the projects related to the SDK and your mods automatically against the Steam Runtime.
+This will build the TF2 mod and the SDK tools automatically against the Steam Runtime.
 
-You can then, in the root of the cloned directory, you can navigate to `game` and run your mod by launching the build launcher for your mod project, eg:
+The generated ninja file regenerates itself whenever a `.vpc`/`.vgc` file changes. The VPC command line itself (game flags, `/define:`s) is baked into that file, so if you change it in `buildallprojects`, delete `src/_vpc_/ninja/sdk_everything_release.ninja` (or the `_debug` one) to force a fresh generation.
+
+You can then, in the root of the cloned directory, navigate to `game` and run the mod with the launcher the build produced:
 ```bash
-./mod_tf
+./mod_tf_linux64
 ```
 
 *Mods that are distributed on Steam MUST be built against the Steam Runtime, which the above steps will automatically do for you.*
