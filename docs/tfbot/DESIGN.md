@@ -162,7 +162,7 @@ Fixed balancing: profiles are chosen so team skill totals are roughly equal. Eac
 |---|---|
 | Build | `src/buildallprojects [release\|debug]` (podman + Steam Runtime "sniper"). Needs `~/.ccache`. |
 | Mod binaries | `game/mod_tf/bin/linux64/{server,client}.so` |
-| Listen server / client | `game/mod_tf_linux64` |
+| Listen server / client | `game/mod_tf_linux64`, or from the Steam library as **"Frog Fortress 2"** (the `game` name in `gameinfo.txt`). `~/.local/share/Steam/steamapps/sourcemods/mod_tf/` is a real folder of symlinks to each top-level entry of `game/mod_tf`; Steam launches it through SDK Base 2013 MP's `hl2.sh`, which picks 64-bit because `bin/linux64/server.so` exists. Restart Steam once after creating it, and re-link after adding top-level folders. *Why a real folder:* Steam only has to find a directory holding `gameinfo.txt`, which a symlinked directory might not satisfy. |
 | Dedicated server | Source SDK Base 2013 Dedicated Server (app 244310) at `~/srcds/sdk2013/` |
 | steamcmd | `~/steamcmd/steamcmd.sh` |
 | Bot-only matches | Need `tf_bot_join_after_player 0` (default 1, `tf/bot/tf_bot_manager.cpp:28`) **and** `tf_allow_server_hibernation 0`; otherwise an empty dedicated server stops simulating |
@@ -202,7 +202,7 @@ M5 barely touches the AI and could move earlier if playing more maps soon matter
 
 Each milestone lists **proposed exit criteria**. These are proposals, to be confirmed when the milestone starts.
 
-**Status (2026-11-27):** every milestone is built. *Testing* means the feature is built, smoke-tested and A/B-checked, and stays **off by default** until your playtests promote it (§3.7). Results: results/M1-M7-tuning.md (diagnosis and calibration) and results/M1-M7-all-vs-stock.md (the headline run).
+**Status (2026-11-27):** every milestone is built. *Testing* means the feature is built, smoke-tested and A/B-checked, and stays **off by default** until your playtests promote it (§3.7). Results: results/M1-M7-tuning.md (diagnosis and calibration) and results/M1-M7-final-all-vs-stock.md (the headline run: all features vs stock, **38% [29–46]**, n = 120, fights at par; the two weak spots are in tuning §8).
 
 ### C0 · Cleanup *(done: `45cdcad2`)*
 Removed the HL2 / HL2:DM / Episodic / Lost Coast projects and `game/mod_hl2mp`. Kept the 14 `hl2/` files the TF build still compiles or lists, at their original paths. Build scripts now build TF only, `.gitignore` covers build output, and the README is updated. Verified: the TF object set (2068 objects) is identical before and after.
@@ -234,7 +234,7 @@ A/A (`test_noop` vs `stock`) over 120 rounds: **48% [39–56]**, and every map's
 - **MvM mapping** (§3.1).
 - **Console tooling:** `tf_bot_profile_new <name> [base]`, `tf_bot_profile_set <name> <key> <value>` (tab completion), `tf_bot_profile_show`, `tf_bot_profile_save`, `tf_bot_profile_reload` (hot reload; live bots update), `tf_bot_add_profile <name> [team]`.
 
-### M1b · Profile GUI *(built; not yet tried in-game)*
+### M1b · Profile GUI *(built; first in-game try found it couldn't be closed, fixed in `3f692386`)*
 - An in-game panel opened with `tf_bot_profile_editor`. Its sliders and fields are **built from the validation schema**, so later keys appear automatically.
 - **Edit the bot you're looking at** with live hot reload, plus spawn-test-bot and save buttons.
 - Reads and writes the profile files directly, which works because everything is local, and uses the M1 commands as its back end.
@@ -337,16 +337,22 @@ Every feature below is registered in `tf/bot/features/` and **off by default** (
 
 **Where the build differs from the plan:**
 - **M1:** a bot's class is decided **once per life**. While alive, `ChooseClass` answers with the current class. On death the bot keeps it with 75–95% odds, else picks by weight. *Why:* the stock in-spawn re-evaluation suicides to switch whenever the answer changes, and a fresh random answer caused 73 suicides a round (results/M1-M7-tuning.md).
+- **M1:** class choice fills the open slots of the **stock preset roster** (2 medics, 2 soldiers, 2 demomen, an engineer, ...; defense swaps a demoman for a second engineer). Favourites decide which bot plays which. If none of a bot's favourites is open, team-needs weighting applies. *Why:* favourites alone gave a near-uniform class spread (one medic, extra snipers). That cost objective play against stock (results/M1-M7-tuning.md §7).
 - **M1:** anonymous bots need no hand-written profiles. Each bot name maps to its tier plus a name-seeded variation, and its style traits and class preferences are derived from the name too, so personalities are stable per name. `tf_bot_human_tier` sets how humans count when balancing.
 - **M1b:** the editor sends `tf_bot_profile_*` commands instead of writing files itself, so the console and the GUI can't disagree. It reads the files only to show values.
+- **M1b:** the editor is a popup, since only popups get a cursor and keyboard focus in game. `tf_bot_profile_editor` toggles it, and Escape or Close shut it. While it's open the mouse drives the cursor, so opening it while aiming at a bot selects that bot. *Why:* the first version was a plain panel, and in game it couldn't be closed.
+- **A/B harness:** run views link `scripts/` file by file, leaving out `tf_bot_profiles_custom.txt`, so runs always measure the shipped profiles. *Why:* a profile saved during a playtest reached test servers that started mid-run.
 - **M2:** hand wobble settles toward 25% while the bot stays on a target. Lead error scales with aim error. Pre-aim holds an angle for 1–2 s (`tf_bot_aim_preaim 0` turns it off). Sweep knobs: `tf_bot_aim_error_scale`, `tf_bot_aim_speed_scale`, `tf_bot_aim_motion_scale`, `tf_bot_aim_wobble_settle`, `tf_bot_aim_wobble_floor`, `tf_bot_aim_preaim_hold_scale`.
 - **M2:** the stock tracking loop is kept, and its levers are profile-driven: tracking interval (M1), turn speed, and the target point with the error model. A longer tracking interval means the bot keeps extrapolating a stale velocity, which is what makes strafing work against it.
 - **M3:** `TheNextBots().OnSpokeConcept` is never called in this codebase, so voice commands come through a new hook in `CTFPlayer::SpeakConceptIfAllowed`. Hearing turns the bot toward an approximate spot (`INTERESTING` look) instead of creating a known entity, which keeps it honest. Hearing reacts only to an enemy **in the open behind** the bot (not behind a wall) and yields to any known threat. Glances check an enemy approach **outside the view cone**. *Why:* gaze is the scarce resource. A bot only notices what's in its 90° cone, and looking at walls cost the perception-only A/B.
+- **M3b:** *forward* engineers still cover the objective. They choose from the stock build areas (those that see the point or cart with a clear line of fire), taking the most advanced half of the ones behind the team's main group. The main group is measured at the teammate a third of the way back from the most advanced, ignoring spies, snipers and engineers. On payload the nest follows the cart (`tf_bot_engineer_advance_gap`). Elsewhere the stock out-of-position check moves it. *Battle* engineers drop minis at the fight. *Why:* the first version nested behind the single furthest teammate, ignoring the objective. Its sentries killed 3.5 a round against stock's 8.7 (results/M1-M7-tuning.md §7).
 - **M3b:** pickup uses `CTFPlayer::TryToPickupBuilding()` while facing the building; placement reuses the stock "valid placement → fire, else shuffle" loop.
 - **M5:** doors and the payload cart need no special handling during generation (brush-only trace mask; doors are treated as passable). Generation also needs `tf_allow_server_hibernation 0` on an empty server.
 - **M7:** soldiers (rocket launcher, Direct Hit, Cow Mangler) and demomen (stickybomb launcher) only, at 60%+ health.
 
 ## 6. Wishlist (not scheduled)
+- **Payload defense on pl_upward** (A/B 0/10). The features team's sentries kill 8.8 a round against stock's 23.9, with about 12 forward-nest picks a round. Lead: on defense, keep forward nests nearer the next checkpoint or re-pick less often, then A/B upward against badwater (which defends well today) to check nothing regresses. Tuning §8.
+- **koth_viaduct as BLU** (features team 6/66 vs 31/66 as RED on this build; stock is symmetric). Ruled out so far: any single feature, pre-aim, NextBot scheduling, name-seeded personalities, team handling. Next step: compare where BLU bots die and stall with the RED mirror positions. Tuning §8.
 - Further unlock batches beyond M6.
 - Generated sniper and sentry hints, if the M5 data calls for them.
 - Calibrating aim from recorded `.dem` demos, if hand-tuned values feel off.

@@ -1,6 +1,6 @@
-# M1–M7 tuning: from 1% to parity (2026-11-27)
+# M1–M7 tuning: from 1% to 38% (2026-11-27)
 
-The first full A/B of every feature against stock bots (`m17-all-vs-stock`, six maps, 120 rounds) lost **119 of 120 rounds**. This page records how that was diagnosed and fixed. All runs: timescale 2, difficulty 1, 12 v 12, sides swapped in equal numbers.
+The first full A/B of every feature against stock bots (`m17-all-vs-stock`, six maps, 120 rounds) lost **119 of 120 rounds**. This page records how that was diagnosed and fixed, reaching 38% with the fights at par (section 8). All runs: timescale 2, difficulty 1, 12 v 12, sides swapped in equal numbers.
 
 ## 1. Suicide loop in the spawn room (profiles)
 
@@ -85,3 +85,60 @@ Per class (kills and deaths per round, six maps):
 | Sniper | 1.86 | 1.64 | A fields more snipers (kills + deaths 18.3 against 12.5) |
 
 Engineer alone had looked strong (K/D 2.29 against 1.20), but without profiles every engineer plays turtle. With profiles, about two thirds play forward or battle, and the forward nest ignores the objective. Diagnosis continues in section 7.
+
+## 7. Leave-one-out, and the engineer and class-mix fixes
+
+Each feature removed from `all` in turn, vs stock, koth_viaduct + pl_upward, 4 rounds per side per map (n = 16; `all` scored about 17% on these maps):
+
+| Removed | Win | Objective s A / B |
+|---|---|---|
+| **engineer** | **44% [23–67]** | 328 / 448 |
+| aim | 38% [18–61] | 373 / 476 |
+| profiles | 25% [10–49] | 282 / 476 |
+| mobility | 19% [7–43] | 271 / 519 |
+| unlocks | 12% [3–36] | 213 / 469 |
+| perception | 12% [3–36] | 332 / 583 |
+| movement | 12% [3–36] | 306 / 538 |
+| blackboard | 0% [0–19] | 259 / 554 |
+
+**Engineers.** Engineer alone had run without profiles, and without a profile every engineer plays turtle. With profiles, aggression picks the style, so about two thirds played forward or battle. The forward nest went to a random area 400 units behind the *furthest* living teammate, ignoring the objective, and kept getting repacked. **Fix** (`f6da18c5`):
+- Forward engineers choose from the stock build areas (those that see the objective with a clear line of fire), taking the most advanced half of the ones behind the team's main group. The main group is measured at the teammate a third of the way back, not the furthest one.
+- On payload the nest keeps up with the cart. Elsewhere the stock out-of-position check moves it when the objective moves.
+- Battle engineers still drop minis at the fight, measured from the same main group.
+
+**Class mix.** Profile favourites gave a near-uniform class spread: often one medic, extra snipers, fewer soldiers and demomen. Stock uses a 12-slot preset roster (2 medics, 2 soldiers, 2 demomen, an engineer that doubles on defense, ...). **Fix** (`f6da18c5`): bots fill the roster's open slots, and favourites decide which bot plays which.
+
+After both fixes (same maps, 6 rounds per side per map, n = 24):
+
+| Variant | Win | Kills A / B | Objective s A / B |
+|---|---|---|---|
+| **all** | **46% [28–65]** | **77.9 / 77.9** | **420 / 471** |
+| all minus aim | 38% [21–57] | 74.9 / 80.3 | 359 / 492 |
+| all minus engineer | 38% [21–57] | 76.2 / 80.1 | 370 / 470 |
+
+Engineer K/D rose from 0.83 to 1.40, and removing either feature no longer helps.
+
+## 8. Final headline, and what's left
+
+[M1-M7-final-all-vs-stock.md](M1-M7-final-all-vs-stock.md): **38% [29–46]** (n = 120, six maps), up from 21%.
+- **Fights:** kills 93.0 / 97.7, hitscan accuracy 33.2% / 32.1%. Every class's K/D is within about 15% of stock's, sniper higher.
+- **Class mix:** matches stock; deaths per class are nearly equal.
+- **Objective time:** 353 s / 444 s.
+- **Per map:** cp_dustbowl, cp_process_final, ctf_2fort and pl_badwater each score 45%. Badwater's 80% / 10% split is the map favouring defense for bots: A's attack captured 19 points to stock's 22.
+
+Two weak spots account for most of the rest:
+
+| Weak spot | Evidence |
+|---|---|
+| **pl_upward on defense: 0/10** | Stock pushed through all 4 checkpoints every round (40 captures). A's sentries killed 8.8 a round against 23.9 for stock's defending engineers. A's engineers re-picked a forward nest 12 times a round. The same logic defends badwater well (sentry kills 18.7 vs 15.8, 8 holds in 10), so the cause looks specific to upward's layout. |
+| **koth_viaduct as BLU: 0/10** | Below. |
+
+**Side asymmetry on koth_viaduct.** In every run of this build on viaduct (10 runs: all features, or all minus one), A won **31/66 as RED (47%)** and **6/66 as BLU (9%)**. Stock vs stock is symmetric there (40% / 40%, M0-baseline). Ruled out:
+- **Any single feature:** removing each one in turn left the gap (the `v6-no-*` and `vd-no-*` runs), and so did turning pre-aim off.
+- **NextBot update scheduling:** with `nb_update_frequency 0`, every bot thinks every tick, and BLU still won 1/8 against RED's 4/8.
+- **Name-seeded personalities:** traits come from bot names, but names start at a random index on each server start. Server logs from two starts on the same map showed different names on each side, so neither side gets a fixed set.
+- **Team handling in the overhaul code:** team masks are correct, and there are no team-indexed arrays.
+
+ctf_2fort looked the same on the previous build (BLU 0/10, RED 4/10). This build shows the opposite (BLU 11/16, RED 6/16 over two runs), so what remains is specific to viaduct. Still unexplained; listed in DESIGN §6.
+
+**Status:** every feature stays *testing* (off by default). The numbers say the overhaul fights at par and plays the objective slightly worse. Whether it plays *like people* is for the playtests (`exec tfbot_playtest`).
