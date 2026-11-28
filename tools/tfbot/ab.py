@@ -168,6 +168,22 @@ def run_job(args, job, port, view, lib, run_dir, print_lock):
     return result
 
 
+# Written by tf_bot_profile_save / the profile editor while you playtest.
+CUSTOM_PROFILES_FILE = "tf_bot_profiles_custom.txt"
+
+
+def link_scripts_without_custom_profiles(src_dir, dst_dir):
+    """scripts/ as per-file links, leaving out your custom profile edits.
+
+    A/B runs measure the shipped profiles. Otherwise an edit saved during a
+    playtest would leak into the servers that start after it, mid-run.
+    """
+    os.makedirs(dst_dir)
+    for name in os.listdir(src_dir):
+        if name != CUSTOM_PROFILES_FILE:
+            os.symlink(os.path.join(src_dir, name), os.path.join(dst_dir, name))
+
+
 def snapshot_view(shared_view, run_dir, server_override=None):
     """Per-run copy of the server view with its own copy of the binaries.
 
@@ -185,6 +201,8 @@ def snapshot_view(shared_view, run_dir, server_override=None):
         elif entry == "cfg":
             # a real copy: per-job cfgs are written here and must not land in the repo
             shutil.copytree(os.path.realpath(src), os.path.join(view, entry))
+        elif entry == "scripts":
+            link_scripts_without_custom_profiles(os.path.realpath(src), os.path.join(view, entry))
         elif os.path.islink(src):
             os.symlink(os.readlink(src), os.path.join(view, entry))
     bin_src = os.path.join(shared_view, "bin", "linux64")
