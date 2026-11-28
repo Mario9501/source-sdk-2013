@@ -7,8 +7,11 @@
 //
 // Edits are sent as tf_bot_profile_set commands, which the server applies to
 // live bots immediately; Save runs tf_bot_profile_save. The console commands
-// are the editor's whole back end. "Edit the bot I'm looking at" picks the
-// player under the crosshair. Works on a listen server you host.
+// are the editor's whole back end. Works on a listen server you host.
+//
+// The command toggles the editor (bind it to a key); Escape or Close also shut
+// it. It is a popup, so while it is open the mouse drives a cursor instead of
+// your view: opening it while aiming at a bot selects that bot's profile.
 //
 // See docs/tfbot/DESIGN.md M1b.
 //
@@ -46,8 +49,10 @@ public:
 
 	virtual void PerformLayout() OVERRIDE;
 	virtual void OnCommand( const char *command ) OVERRIDE;
+	virtual void OnKeyCodeTyped( KeyCode code ) OVERRIDE;
 
 	void Refresh();
+	bool SelectPlayerUnderCrosshair();
 
 private:
 	MESSAGE_FUNC( OnItemSelected, "ItemSelected" );
@@ -81,6 +86,7 @@ private:
 	Button *m_btnSpawnBlue;
 	Button *m_btnSave;
 	Button *m_btnReload;
+	Button *m_btnClose;
 };
 
 static CTFBotProfileEditor *s_editor = NULL;
@@ -98,6 +104,12 @@ CTFBotProfileEditor::CTFBotProfileEditor( VPANEL parent ) : Frame( NULL, "TFBotP
 	SetDeleteSelfOnClose( false );
 	SetSize( 760, 600 );
 	MoveToCenterOfScreen();
+
+	// Only popups get a mouse cursor and keyboard focus in game. Without this the
+	// panel stays on screen with nothing to click it closed once the console shuts.
+	MakePopup();
+	SetKeyBoardInputEnabled( true );
+	SetMouseInputEnabled( true );
 
 	m_stock = NULL;
 	m_custom = NULL;
@@ -139,10 +151,13 @@ CTFBotProfileEditor::CTFBotProfileEditor( VPANEL parent ) : Frame( NULL, "TFBotP
 
 	m_btnLookAt = new Button( this, "LookAt", "Edit the bot I'm looking at", this, "lookat" );
 	m_btnNew = new Button( this, "New", "New profile", this, "new" );
-	m_btnSpawnRed = new Button( this, "SpawnRed", "Spawn test bot (RED)", this, "spawn_red" );
-	m_btnSpawnBlue = new Button( this, "SpawnBlue", "Spawn test bot (BLU)", this, "spawn_blue" );
+	m_btnSpawnRed = new Button( this, "SpawnRed", "Test bot (RED)", this, "spawn_red" );
+	m_btnSpawnBlue = new Button( this, "SpawnBlue", "Test bot (BLU)", this, "spawn_blue" );
 	m_btnSave = new Button( this, "Save", "Save", this, "save" );
-	m_btnReload = new Button( this, "Reload", "Reload files", this, "reload" );
+	m_btnReload = new Button( this, "Reload", "Reload", this, "reload" );
+	// The title bar's X is a Marlett glyph that ClientScheme may not draw, so
+	// closing gets a plain button too ("Close" is handled by Frame).
+	m_btnClose = new Button( this, "CloseEditor", "Close", this, "Close" );
 
 	Refresh();
 }
@@ -196,10 +211,11 @@ void CTFBotProfileEditor::PerformLayout()
 
 	int bx = x;
 	int by = tall - 40;
-	m_btnSpawnRed->SetBounds( bx, by, 150, 24 );
-	m_btnSpawnBlue->SetBounds( bx + 156, by, 150, 24 );
-	m_btnReload->SetBounds( wide - margin - 190, by, 90, 24 );
-	m_btnSave->SetBounds( wide - margin - 94, by, 94, 24 );
+	m_btnSpawnRed->SetBounds( bx, by, 120, 24 );
+	m_btnSpawnBlue->SetBounds( bx + 126, by, 120, 24 );
+	m_btnReload->SetBounds( wide - margin - 246, by, 78, 24 );
+	m_btnSave->SetBounds( wide - margin - 162, by, 78, 24 );
+	m_btnClose->SetBounds( wide - margin - 78, by, 78, 24 );
 }
 
 
@@ -430,19 +446,8 @@ void CTFBotProfileEditor::OnCommand( const char *command )
 	}
 	else if ( !V_stricmp( command, "lookat" ) )
 	{
-		C_BasePlayer *local = C_BasePlayer::GetLocalPlayer();
-		if ( local )
-		{
-			Vector forward;
-			AngleVectors( local->EyeAngles(), &forward );
-			trace_t tr;
-			UTIL_TraceLine( local->EyePosition(), local->EyePosition() + forward * 4000.0f, MASK_SHOT, local, COLLISION_GROUP_NONE, &tr );
-			C_TFPlayer *target = ToTFPlayer( tr.m_pEnt );
-			if ( target && target != local )
-				SelectProfile( target->GetPlayerName() );
-			else
-				m_title->SetText( "No player under the crosshair" );
-		}
+		if ( !SelectPlayerUnderCrosshair() )
+			m_title->SetText( "No player under the crosshair (aim, then reopen the editor)" );
 	}
 	else
 	{
@@ -452,8 +457,49 @@ void CTFBotProfileEditor::OnCommand( const char *command )
 
 
 //-----------------------------------------------------------------------------
-CON_COMMAND( tf_bot_profile_editor, "Open the in-game bot profile editor (listen server host)" )
+void CTFBotProfileEditor::OnKeyCodeTyped( KeyCode code )
 {
+	// Same as TF2's own dialogs: Escape closes the popup that has focus.
+	if ( code == KEY_ESCAPE )
+		Close();
+	else
+		BaseClass::OnKeyCodeTyped( code );
+}
+
+
+//-----------------------------------------------------------------------------
+// Selects the profile of the player under the crosshair, if there is one.
+bool CTFBotProfileEditor::SelectPlayerUnderCrosshair()
+{
+	C_BasePlayer *local = C_BasePlayer::GetLocalPlayer();
+	if ( !local )
+		return false;
+
+	Vector forward;
+	AngleVectors( local->EyeAngles(), &forward );
+	trace_t tr;
+	UTIL_TraceLine( local->EyePosition(), local->EyePosition() + forward * 4000.0f, MASK_SHOT, local, COLLISION_GROUP_NONE, &tr );
+	C_TFPlayer *target = ToTFPlayer( tr.m_pEnt );
+	if ( !target || target == local )
+		return false;
+
+	SelectProfile( target->GetPlayerName() );
+	return true;
+}
+
+
+//-----------------------------------------------------------------------------
+// Toggles the editor, so one key bound to it opens and closes it. While the
+// editor is open the mouse drives the cursor, not your view, so opening it while
+// aiming at a bot selects that bot's profile.
+CON_COMMAND( tf_bot_profile_editor, "Open or close the in-game bot profile editor (listen server host). Opening it while aiming at a bot selects that bot." )
+{
+	if ( s_editor && s_editor->IsVisible() )
+	{
+		s_editor->Close();
+		return;
+	}
+
 	if ( !s_editor )
 	{
 		s_editor = new CTFBotProfileEditor( enginevgui->GetPanel( PANEL_CLIENTDLL ) );
@@ -462,7 +508,7 @@ CON_COMMAND( tf_bot_profile_editor, "Open the in-game bot profile editor (listen
 	{
 		s_editor->Refresh();
 	}
+	s_editor->SelectPlayerUnderCrosshair();
 	s_editor->Activate();
-	s_editor->SetVisible( true );
 	s_editor->MoveToFront();
 }
